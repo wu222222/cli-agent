@@ -7,7 +7,7 @@
 ## 2. 核心架构组件 (Core Components)
 
 ### A. 推理引擎 (Reasoning Engine)
-- **模型需求**：支持 Function Calling 的 LLM (如 GPT-4o, Claude 3.5 Sonnet)。
+- **模型需求**：支持 Function Calling 的 LLM (如 千问,前期暂时只考虑国产模型)。
 - **逻辑框架**：采用 ReAct (Reason/Act) 循环。
 - **上下文管理**：维护一个动态的对话内存，记录用户的指令、Agent 的思考过程、工具调用参数以及沙盒返回的执行结果。
 

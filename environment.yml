@@ -1,0 +1,11 @@
+name: safe-cli-agent
+channels:
+  - defaults
+dependencies:
+  - python=3.10
+  - mamba
+  - pip:
+    - openai
+    - docker
+    - python-dotenv
+    - rich
