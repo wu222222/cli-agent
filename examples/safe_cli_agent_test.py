@@ -13,7 +13,7 @@ from src.executor import DockerExecutor
 
 # 设置日志 - 使用结构化日志，减少噪音
 setup_logger(
-    level=logging.DEBUG,  #  提高日志级别，减少调试信息
+    level=logging.INFO,  
     use_color=True,      # 使用彩色输出
     format_string="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
@@ -24,15 +24,34 @@ def setup_tools(agent, executor):
     """为Agent注册工具处理函数"""
     # 注册 execute_command 工具的处理函数
     def execute_command_handler(command):
-        """执行命令的处理函数"""
+        """执行命令的处理函数 (结构化增强版)"""
         try:
             logger.info(f"执行命令: {command}")
             stdout, stderr, exit_code = executor.execute_command(command)
-            result = f"退出码: {exit_code}\n\n标准输出:\n{stdout}\n\n标准错误:\n{stderr}"
+            
+            # 使用 XML 标签包裹不同维度的输出
+            # 这种方式能够强迫模型在注意力机制上将 stdout 和 stderr 分开
+            result = (
+                f"<command_execution>\n"
+                f"<exit_code>{exit_code}</exit_code>\n"
+                f"<stdout>\n{stdout}\n</stdout>\n"
+                f"<stderr>\n{stderr}\n</stderr>\n"
+                f"</command_execution>"
+            )
             return result
         except Exception as e:
-            return f"执行命令失败: {str(e)}"
-    
+            # 错误信息也进行结构化，防止 AI 误以为是正常的 stdout
+            return f"<error>执行命令失败: {str(e)}</error>"
+    # def execute_command_handler(command):
+    #     """执行命令的处理函数"""
+    #     try:
+    #         logger.info(f"执行命令: {command}")
+    #         stdout, stderr, exit_code = executor.execute_command(command)
+    #         result = f"退出码: {exit_code}\n\n标准输出:\n{stdout}\n\n标准错误:\n{stderr}"
+    #         return result
+    #     except Exception as e:
+    #         return f"执行命令失败: {str(e)}"
+
     # 获取工具并设置处理函数
     execute_command_tool = agent.tools.get_tool("execute_command")
     if execute_command_tool:
@@ -106,6 +125,9 @@ async def test_safe_cli_agent():
             input("\n按 Enter 键继续...")
             
     finally:
+        #输出历史信息
+        print(agent.context.format_history("detailed"))
+
         # 清理资源
         executor.close()
         print("\n" + "=" * 60)

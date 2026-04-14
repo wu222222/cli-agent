@@ -1,62 +1,121 @@
 from typing import List, Dict, Any, Optional
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass
 
 
 @dataclass
 class Message:
-    role: str
+    role: str  # user, assistant, system, tool
     content: str
-    timestamp: datetime = field(default_factory=datetime.now)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    tool_call_id: Optional[str] = None
+    tool_name: Optional[str] = None
 
 
 class ContextManager:
-    def __init__(self, max_history: int = 10):
-        self.max_history = max_history
+    def __init__(self):
         self.messages: List[Message] = []
         self.system_prompt: Optional[str] = None
+        self.final_answer: Optional[str] = None
 
     def set_system_prompt(self, prompt: str) -> None:
+        """设置系统提示"""
         self.system_prompt = prompt
-
-    def add_message(self, role: str, content: str, metadata: Optional[Dict[str, Any]] = None) -> None:
-        message = Message(
-            role=role,
-            content=content,
-            metadata=metadata or {}
-        )
-        self.messages.append(message)
-        self._trim_history()
+        # 移除旧的系统消息
+        self.messages = [msg for msg in self.messages if msg.role != "system"]
+        # 添加新的系统消息
+        self.messages.insert(0, Message(role="system", content=prompt))
 
     def add_user_message(self, content: str) -> None:
-        self.add_message("user", content)
+        """添加用户消息"""
+        self.messages.append(Message(role="user", content=content))
 
-    def add_assistant_message(self, content: str, metadata: Optional[Dict[str, Any]] = None) -> None:
-        self.add_message("assistant", content, metadata)
+    def add_assistant_message(self, content: str) -> None:
+        """添加助手消息"""
+        self.messages.append(Message(role="assistant", content=content))
 
-    def add_tool_result(self, tool_name: str, result: str) -> None:
-        content = f"工具 {tool_name} 的执行结果:\n{result}"
-        self.add_message("system", content, {"type": "tool_result", "tool_name": tool_name})
+    def add_tool_result(self, tool_name: str, result: str, tool_call_id: Optional[str] = None) -> None:
+        """添加工具执行结果"""
+        self.messages.append(Message(
+            role="tool",
+            content=result,
+            tool_call_id=tool_call_id,
+            tool_name=tool_name
+        ))
 
-    def get_messages(self) -> List[Dict[str, str]]:
-        messages = []
-        if self.system_prompt:
-            messages.append({"role": "system", "content": self.system_prompt})
-        for msg in self.messages:
-            messages.append({"role": msg.role, "content": msg.content})
-        return messages
-
-    def get_recent_messages(self, n: int) -> List[Dict[str, str]]:
-        all_messages = self.get_messages()
-        return all_messages[-n:] if n < len(all_messages) else all_messages
-
-    def clear(self) -> None:
-        self.messages.clear()
-
-    def _trim_history(self) -> None:
-        if len(self.messages) > self.max_history:
-            self.messages = self.messages[-self.max_history:]
+    def get_messages(self) -> List[Dict[str, Any]]:
+        """获取消息列表，格式化为LLM API需要的格式"""
+        return [
+            {"role": msg.role, "content": msg.content}
+            for msg in self.messages
+        ]
 
     def get_context_summary(self) -> str:
-        return f"上下文包含 {len(self.messages)} 条消息，最大保留 {self.max_history} 条"
+        """获取上下文摘要"""
+        summary = f"消息数量: {len(self.messages)}\n"
+        summary += f"系统提示: {self.system_prompt[:100]}..." if self.system_prompt else "无系统提示\n"
+        
+        # 显示最近的几条消息
+        recent_messages = self.messages[-5:]
+        summary += "最近消息:\n"
+        for msg in recent_messages:
+            content_preview = msg.content[:50] + "..." if len(msg.content) > 50 else msg.content
+            summary += f"[{msg.role}] {content_preview}\n"
+        
+        return summary
+
+    def clear(self) -> None:
+        """清空上下文"""
+        self.messages = []
+        self.final_answer = None
+        # 保留系统提示
+        if self.system_prompt:
+            self.messages.append(Message(role="system", content=self.system_prompt))
+
+    def format_history(self, format_type: str = "simple") -> str:
+        """格式化历史消息
+        
+        Args:
+            format_type: 格式化类型，可选值: simple, detailed, json
+            
+        Returns:
+            str: 格式化后的历史消息
+        """
+        if format_type == "simple":
+            lines = [f"历史消息（共 {len(self.messages)} 条）:"]
+            for i, msg in enumerate(self.messages, 1):
+                content_preview = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
+                lines.append(f"{i}. [{msg.role}] {content_preview}")
+            return "\n".join(lines)
+        
+        elif format_type == "detailed":
+            lines = [f"历史消息详情（共 {len(self.messages)} 条）:"]
+            for i, msg in enumerate(self.messages, 1):
+                lines.append(f"\n{i}. 角色: {msg.role}")
+                if msg.tool_name:
+                    lines.append(f"   工具: {msg.tool_name}")
+                if msg.tool_call_id:
+                    lines.append(f"   工具调用ID: {msg.tool_call_id}")
+                lines.append(f"   内容: {msg.content}")
+            return "\n".join(lines)
+        
+        elif format_type == "json":
+            import json
+            messages_data = []
+            for msg in self.messages:
+                msg_dict = {"role": msg.role, "content": msg.content}
+                if msg.tool_name:
+                    msg_dict["tool_name"] = msg.tool_name
+                if msg.tool_call_id:
+                    msg_dict["tool_call_id"] = msg.tool_call_id
+                messages_data.append(msg_dict)
+            return json.dumps(messages_data, ensure_ascii=False, indent=2)
+        
+        else:
+            return self.get_context_summary()
+
+    def set_final_answer(self, answer: str) -> None:
+        """设置最终回答"""
+        self.final_answer = answer
+
+    def get_final_answer(self) -> str:
+        """获取最终回答"""
+        return self.final_answer or "操作已完成"

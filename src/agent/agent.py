@@ -1,35 +1,18 @@
 import asyncio
 import json
-from typing import Dict, Any, Optional, List, Callable
-from dataclasses import dataclass
-from enum import Enum
+from typing import Dict, Any, Optional, Callable
+
 
 from src.logger import get_logger
 from src.llm import LLMClient, LLMConfig
 from .context import ContextManager
 from .prompt import PromptManager
 from .tools import ToolRegistry, Tool
+from .statemachine import AgentStateMachine
+from .base import AgentResponse, AgentState
 
 logger = get_logger(__name__)
 
-
-class AgentState(Enum):
-    IDLE = "idle"
-    THINKING = "thinking"
-    EXECUTING = "executing"
-    WAITING_CONFIRMATION = "waiting_confirmation"
-    COMPLETED = "completed"
-    ERROR = "error"
-
-
-@dataclass
-class AgentResponse:
-    content: str
-    action_type: str  # execute_command, read_file, write_file, stop
-    action_params: Dict[str, Any]
-    requires_confirmation: bool = False
-    confirmation_prompt: str = ""
-    is_final_answer: bool = False  # 是否是最终回答
 
 
 class Agent:
@@ -44,11 +27,13 @@ class Agent:
         self.context = context_manager or ContextManager()
         self.prompts = prompt_manager or PromptManager()
         self.tools = tool_registry or ToolRegistry()
-        self.state = AgentState.IDLE
+        self.state_machine = AgentStateMachine()
         self.max_iterations = 5
         self._confirmation_handler: Optional[Callable] = None
 
         self._setup_system_prompt()
+        self.state_machine.set_agent(self)  # 设置关联的Agent实例
+
 
     def _setup_system_prompt(self) -> None:
         system_prompt = self.prompts.get_system_prompt()
@@ -75,56 +60,43 @@ class Agent:
             data = json.loads(json_str)
             return data.get("action", {})
         except (json.JSONDecodeError, IndexError):
+            logger.warning(f"无法解析action: {response_text}")
             return None
 
     async def run(self, user_input: str) -> str:
-        self.state = AgentState.THINKING
+        # 初始化：向上下文添加用户输入，并进入起始状态
         self.context.add_user_message(user_input)
+        self.state_machine.transition(AgentState.THINKING)
 
         try:
             for iteration in range(self.max_iterations):
                 logger.info(f"ReAct 迭代 {iteration + 1}/{self.max_iterations}")
 
-                response = await self._think()
+                # 核心逻辑：执行当前状态，并根据返回值自动切换到下一个状态
+                # 每个 State.execute 会根据业务逻辑返回下一个 AgentState 枚举
+                transition = await self.state_machine.execute()
+                
+                # 获取参数
+                next_state_enum = transition.state
+                data = transition.data
 
-                # logger.debug(f"ReAct 响应: {response}")
-                # 如果是最终回答，直接返回
-                if response.is_final_answer:
-                    self.state = AgentState.COMPLETED
-                    return response.action_params.get("answer", response.content)
+                # 执行状态转换（内部会触发 on_exit 和 on_enter）
+                if not self.state_machine.transition(next_state_enum, data):
+                    logger.error(f"非法状态转换: {self.state_machine.get_state()} -> {next_state_enum}")
+                    return "状态转换错误"
 
-                # 如果需要确认
-                if response.requires_confirmation:
-                    self.state = AgentState.WAITING_CONFIRMATION
-                    if self._confirmation_handler:
-                        confirmed = self._confirmation_handler(response.confirmation_prompt)
-                        if not confirmed:
-                            return "操作已取消"
-                    self.state = AgentState.EXECUTING
-
-                # 执行action
-                if response.action_type and response.action_type != "stop":
-                    self.state = AgentState.EXECUTING
-                    observation = await self._execute_action(response.action_type, response.action_params)
-                    
-                    # 添加assistant消息和工具结果到上下文
-                    self.context.add_assistant_message(response.content)
-                    self.context.add_tool_result(
-                        response.action_type,
-                        observation
-                    )
-                else:
-                    # 没有action或stop action，返回内容
-                    self.context.add_assistant_message(response.content)
-                    self.state = AgentState.COMPLETED
-                    return response.content
+                # 检查是否结束
+                if self.state_machine.is_in_state(AgentState.COMPLETED):
+                    return self.context.get_final_answer()
+                
+                if self.state_machine.is_in_state(AgentState.ERROR):
+                    return "任务执行出错，已终止"
 
             return "达到最大迭代次数，任务未完成"
 
         except Exception as e:
-            self.state = AgentState.ERROR
-            logger.error(f"Agent 执行错误: {e}")
-            return f"执行错误: {str(e)}"
+            self.state_machine.transition(AgentState.ERROR, error=str(e))
+            return f"系统崩溃: {str(e)}"
 
     async def _think(self) -> AgentResponse:
         messages = self.context.get_messages()
@@ -144,8 +116,7 @@ class Agent:
                     return AgentResponse(
                         content=response_text,
                         action_type="stop",
-                        action_params=action_params,
-                        is_final_answer=True
+                        action_params=action_params
                     )
 
                 # 处理 execute_command action
@@ -170,8 +141,7 @@ class Agent:
             return AgentResponse(
                 content=response_text,
                 action_type="stop",
-                action_params={"answer": response_text},
-                is_final_answer=True
+                action_params={"answer": response_text}
             )
 
         except Exception as e:
@@ -184,11 +154,11 @@ class Agent:
 
         # 通过工具注册表执行工具
         result = self.tools.execute_tool(action_type, action_params)
-        logger.debug(f"工具执行结果: {result}")
+        logger.info(f"工具执行结果: {result}")
         return result
 
     def get_state(self) -> AgentState:
-        return self.state
+        return self.state_machine.get_state()
 
     def get_context_summary(self) -> str:
         return self.context.get_context_summary()
@@ -196,6 +166,7 @@ class Agent:
     def clear_context(self) -> None:
         self.context.clear()
         self._setup_system_prompt()
+        self.state_machine.reset()
 
     async def chat(self, message: str) -> str:
         return await self.run(message)

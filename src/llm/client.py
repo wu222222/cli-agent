@@ -14,6 +14,11 @@ class LLMClient:
         self._sync_client: Optional[OpenAI] = None
         self._async_client: Optional[AsyncOpenAI] = None
 
+        self.initialize_clients_logger()
+
+    def initialize_clients_logger(self) -> None:
+        logger.info(f"初始化LLM客户端,模型名称: {self.config.model}")
+
     @property
     def sync_client(self) -> OpenAI:
         if self._sync_client is None:
