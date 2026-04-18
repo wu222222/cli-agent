@@ -1,15 +1,16 @@
 from typing import Dict, Any, Callable, Optional, List
-from dataclasses import dataclass, field
+
 from abc import ABC, abstractmethod
+from pydantic import BaseModel, Field
 import json
 
 
-@dataclass
-class Tool:
+class Tool(BaseModel):
     name: str
     description: str
     parameters: Dict[str, Any] = field(default_factory=dict)
     required_params: List[str] = field(default_factory=list)
+
     handler: Optional[Callable] = None
 
     def to_dict(self) -> Dict[str, Any]:
@@ -26,11 +27,6 @@ class Tool:
             }
         }
 
-    def validate_params(self, params: Dict[str, Any]) -> bool:
-        for param in self.required_params:
-            if param not in params:
-                return False
-        return True
 
 
 class ToolRegistry:

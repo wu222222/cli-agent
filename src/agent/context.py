@@ -1,18 +1,13 @@
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
+from .base import Message, StateTrace
 
-
-@dataclass
-class Message:
-    role: str  # user, assistant, system, tool
-    content: str
-    tool_call_id: Optional[str] = None
-    tool_name: Optional[str] = None
 
 
 class ContextManager:
     def __init__(self):
         self.messages: List[Message] = []
+        self.state_trace: List[StateTrace] = []
         self.system_prompt: Optional[str] = None
         self.final_answer: Optional[str] = None
 
@@ -111,6 +106,23 @@ class ContextManager:
         
         else:
             return self.get_context_summary()
+
+    def add_state_trace(self, from_state: str, to_state: str, params: Optional[Dict[str, Any]] = None) -> None:
+        """添加状态转换记录"""
+        self.state_trace.append(StateTrace(from_state=from_state, to_state=to_state, params=params))
+
+    def get_state_trace(self) -> str:
+        """格式化状态转换记录
+        
+        Returns:
+            str: 格式化后的状态转换记录   
+        """
+        lines = [f"状态转换记录（共 {len(self.state_trace)} 条）:"]
+        for i, trace in enumerate(self.state_trace, 1):
+            lines.append(f"{i}. 从 {trace.from_state} 到 {trace.to_state}")
+            if trace.params:
+                lines.append(f"   参数: {trace.params}")
+        return "\n".join(lines)
 
     def set_final_answer(self, answer: str) -> None:
         """设置最终回答"""

@@ -13,7 +13,7 @@ from src.executor import DockerExecutor
 
 # 设置日志 - 使用结构化日志，减少噪音
 setup_logger(
-    level=logging.INFO,  
+    level=logging.DEBUG,  
     use_color=True,      # 使用彩色输出
     format_string="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
@@ -126,8 +126,9 @@ async def test_safe_cli_agent():
             
     finally:
         #输出历史信息
-        print(agent.context.format_history("detailed"))
-
+        logger.debug(agent.context.format_history("detailed"))
+        
+        logger.debug(agent.context.get_state_trace())
         # 清理资源
         executor.close()
         print("\n" + "=" * 60)
