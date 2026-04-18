@@ -9,7 +9,7 @@ from .context import ContextManager
 from .prompt import PromptManager
 from .tools import ToolRegistry, Tool
 from .statemachine import WorkerStateMachine
-from .base import AgentResponse, AgentState,BaseAgent,ActionType,BaseStateMachine
+from .base import AgentResponse, AgentState,BaseAgent,ActionType,BaseStateMachine,LLMAction,LLMOutput
 
 
 logger = get_logger(__name__)
@@ -22,10 +22,10 @@ class WorkerAgent(BaseAgent):
     def _create_state_machine(self) -> BaseStateMachine:
         return WorkerStateMachine()
 
-    def _parse_action(self, response_text: str) -> Optional[Dict[str, Any]]:
-        """解析LLM响应中的action"""
+    def _parse_action(self, response_text: str) -> Optional[LLMOutput]:
+        """解析 LLM 响应并返回结构化的 LLMOutput 对象"""
         try:
-            # 提取JSON内容
+            # 1. 提取 JSON 字符串
             if "```json" in response_text:
                 json_str = response_text.split("```json")[1].split("```")[0].strip()
             elif "```" in response_text:
@@ -33,10 +33,15 @@ class WorkerAgent(BaseAgent):
             else:
                 json_str = response_text.strip()
 
+            # 2. 解析 JSON
             data = json.loads(json_str)
-            return data.get("action", {})
-        except (json.JSONDecodeError, IndexError):
-            logger.warning(f"无法解析action: {response_text}")
+            
+            # 3. 使用 Pydantic 进行结构校验
+            # 这一步会自动检查 thought 和 action 字段是否存在
+            return LLMOutput.model_validate(data)
+        
+        except (json.JSONDecodeError, IndexError, ValidationError) as e:
+            logger.warning(f"JSON 解析或结构校验失败: {e}")
             return None
 
     async def _think(self) -> AgentResponse:
@@ -48,41 +53,34 @@ class WorkerAgent(BaseAgent):
             logger.debug(f"LLM 响应原始文本: {response_text}")
 
             # 2. 解析 JSON 结构
-            action_data = self._parse_action(response_text)
+            llm_output = self._parse_action(response_text)
             
-            # 如果解析不到 action，默认为停止并回答
-            if not action_data:
+            if not llm_output:
+                # 解析失败的兜底逻辑
                 return AgentResponse(
+                    thought="解析失败，尝试直接回答",
                     content=response_text,
                     action_type=ActionType.STOP,
                     action_params={"answer": response_text}
                 )
 
-            # 3. 规范化 Action 类型
-            raw_type = action_data.get("type", "stop")
+            # 此时你可以直接访问 llm_output.thought 和 llm_output.action
+            raw_type = llm_output.action.type
+            action_params = llm_output.action.parameters
             try:
                 action_type = ActionType(raw_type)
             except ValueError:
-                logger.warning(f"接收到未知动作类型: {raw_type}，强制转为 STOP")
                 action_type = ActionType.STOP
 
-            action_params = action_data.get("parameters", {})
-
-            # 4. 创建响应对象并利用 Pydantic 校验参数
-            try:
-                agent_resp = AgentResponse(
-                    content=response_text,
-                    action_type=action_type,
-                    action_params=action_params
-                )
+            agent_resp = AgentResponse(
+                thought=llm_output.thought, # 结构化存储思考
+                content=response_text,
+                action_type=action_type,
+                action_params=action_params
+            )
                 
-                # 执行 Schema 校验（这一步会检查参数是否符合 base.py 里的定义）
-                agent_resp.validate_params()
-                
-            except (ValidationError, ValueError) as ve:
-                logger.error(f"参数校验失败: {ve}")
-                # 可以在这里处理：给 LLM 一个反馈让它重试，或者抛出异常
-                raise
+            # 执行 Schema 校验（这一步会检查参数是否符合 base.py 里的定义）
+            agent_resp.validate_params()
 
             # 5. 业务逻辑增强：处理确认逻辑和提示词
             self._enrich_action_logic(agent_resp)
@@ -109,23 +107,13 @@ class WorkerAgent(BaseAgent):
             if "answer" not in resp.action_params:
                 resp.action_params["answer"] = resp.content
 
-    def confirmation_handler(self, prompt: str) -> bool:
-        """人机确认处理器"""
-        print("\n" + "=" * 60)
-        print("🔐 安全确认")
-        print("=" * 60)
-        print(f"⚠️  {prompt}")
-        print("\n该命令将在隔离的 Docker 容器中执行，不会影响宿主机。")
-        
-        # 等待用户确认
-        while True:
-            confirm = input("\n是否确认执行？(y/n): ").lower().strip()
-            if confirm == 'y':
-                return True
-            elif confirm == 'n':
-                return False
-            else:
-                print("请输入 'y' 或 'n'")
+    async def _execute_action(self, action_type: str, action_params: Dict[str, Any]) -> str:
+        """执行action"""
+        logger.info(f"执行action: {action_type}, 参数: {action_params}")
+        # 通过工具注册表执行工具
+        result = self.tools.execute_tool(action_type, action_params)
+        logger.info(f"工具执行结果: {result}")
+        return result
 
 # class Agent:
 #     def __init__(

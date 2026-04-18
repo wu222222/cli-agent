@@ -1,4 +1,4 @@
-from typing import Dict, Any, Optional, Type
+from typing import Dict, Any, Optional, Type, NamedTuple
 from dataclasses import dataclass
 from enum import Enum
 from abc import ABC, abstractmethod
@@ -37,14 +37,55 @@ ACTION_SCHEMA_MAP: Dict[ActionType, Type[BaseModel]] = {
     ActionType.STOP: StopParams,
 }
 
+class StateData(BaseModel):
+    """所有状态传递数据的基类"""
+    pass
 
-@dataclass
-class AgentResponse:
+class ThinkingToExecutingData(StateData):
+    """从思考跳转到执行/确认时需要的数据"""
+    response: AgentResponse
+    # 将控制流属性移动到这里
+    requires_confirmation: bool = False
+    confirmation_prompt: Optional[str] = ""
+
+class ExecutionResultData(StateData):
+    """执行完成后返回给思考状态的数据"""
+    observation: str
+    action_type: str
+
+class ErrorData(StateData):
+    """跳转到错误状态时需要的数据"""
+    error_message: str
+    trace: Optional[str] = None
+
+class StateTransition(BaseModel):
+    """状态转换"""
+    state: AgentState
+    data: Optional[StateData] = None
+
+    # 允许在初始化时直接传对象
+    class Config:
+        arbitrary_types_allowed = True
+
+class LLMAction(BaseModel):
+    """对应 Prompt 中的 action 部分"""
+    type: str
+    parameters: Dict[str, Any] = Field(default_factory=dict)
+
+class LLMOutput(BaseModel):
+    """对应 Prompt 中的整体 JSON 结构"""
+    thought: str
+    action: LLMAction
+
+class AgentResponse(BaseModel):
+    thought: str
     content: str
     action_type: ActionType
     action_params: Dict[str, Any]
-    requires_confirmation: bool = False
-    confirmation_prompt: str = ""
+
+    # 允许 Pydantic 处理可能存在的 dataclass 遗留
+    class Config:
+        arbitrary_types_allowed = True
 
     def validate_params(self):
         """
@@ -134,9 +175,41 @@ class BaseAgent(ABC):
         """具体的 LLM 调用和解析逻辑"""
         pass
 
+    @abstractmethod
+    async def _execute_action(self, action_type: str, action_params: Dict[str, Any]) -> str:
+        """执行具体的动作，并返回结果"""
+        pass
+
     def _get_final_result(self) -> str:
         """默认从 context 拿结果，子类可重写"""
         return self.context.get_final_answer()
+
+class State(ABC):
+    """状态基类，定义状态的钩子函数"""
+    
+    def __init__(self, state_machine: 'BaseStateMachine'):
+        self.state_machine = state_machine
+        self.state = None  # 子类需要设置具体的状态
+        self.agent: Optional[BaseAgent] = None  # 由状态机设置
+    
+    @abstractmethod
+    def on_enter(self, data: Optional[StateData] = None):
+        """进入状态时调用"""
+        pass
+    
+    @abstractmethod
+    def on_exit(self, data: Optional[StateData] = None):
+        """退出状态时调用"""
+        pass
+    
+    @abstractmethod
+    async def execute(self, data: Optional[StateData] = None) -> StateTransition:
+        """执行状态逻辑并返回下一个状态"""
+        pass
+    
+    def can_transition_to(self, new_state: AgentState) -> bool:
+        """检查是否可以转换到新状态"""
+        return True
 
 class BaseStateMachine(ABC):
     def __init__(self, initial_state: AgentState):
@@ -155,24 +228,24 @@ class BaseStateMachine(ABC):
         """子类需实现：配置该状态机特有的状态类映射"""
         pass
 
-    def transition(self, new_state: AgentState, **kwargs) -> bool:
+    def transition(self, new_state_enum: AgentState, data: Optional[StateData] = None) -> bool:
         """通用的状态切换逻辑（包含你之前写的 context 记录逻辑）"""
-        if new_state not in self._states:
+        if new_state_enum not in self._states:
             return False
         
         # 统一的日志记录
         if self.agent and self.agent.context:
             self.agent.context.add_state_trace(
                 from_state=self._current_state_enum.value,
-                to_state=new_state.value,
-                params=kwargs
+                to_state=new_state_enum.value,
+                params=data
             )
 
-        self._current_state.on_exit(**kwargs)
-        self._current_state_enum = new_state
-        self._current_state = self._states[new_state]
-        self._current_state.on_enter(**kwargs)
+        self._current_state.on_exit(data)
+        self._current_state_enum = new_state_enum
+        self._current_state = self._states[new_state_enum]
+        self._current_state.on_enter(data)
         return True
 
-    async def execute(self, **kwargs) -> StateTransition:
-        return await self._current_state.execute(**kwargs)
+    async def execute(self, data: Optional[StateData] = None) -> StateTransition:
+        return await self._current_state.execute(data)
