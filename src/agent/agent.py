@@ -5,19 +5,35 @@ from pydantic import ValidationError
 
 from src.logger import get_logger
 from src.llm import LLMClient, LLMConfig
-from .context import ContextManager
-from .prompt import PromptManager
-from .tools import ToolRegistry, Tool
+
 from .statemachine import WorkerStateMachine
-from .base import AgentResponse, AgentState,BaseAgent,ActionType,BaseStateMachine,LLMAction,LLMOutput
+from .types import *
+from .base import BaseAgent,BaseStateMachine
+
+from src.agent.context import ContextManager
+from src.agent.prompt import PromptManager
+from src.agent.tools import ToolRegistry
 
 
 logger = get_logger(__name__)
 
 class WorkerAgent(BaseAgent):
     """工作代理，负责执行实际的任务"""
-    def __init__(self, name: str = "WorkerAgent", llm_client: Optional[LLMClient] = None):
-        super().__init__(name, llm_client)
+    def __init__(
+        self, 
+        name: str = "WorkerAgent", 
+        llm_client: Optional[LLMClient] = None,
+        prompt_manager: Optional[PromptManager] = None,
+        context_manager: Optional[ContextManager] = None,
+        tool_registry: Optional[ToolRegistry] = None,
+        ):
+        # 再调用父类的__init__
+        super().__init__(name, llm_client, prompt_manager, context_manager, tool_registry)
+
+    
+    def _setup_system_prompt(self) -> None:
+        system_prompt = self.prompt_manager._build_worker_prompt()
+        self.context_manager.set_system_prompt(system_prompt)
 
     def _create_state_machine(self) -> BaseStateMachine:
         return WorkerStateMachine()
@@ -45,7 +61,7 @@ class WorkerAgent(BaseAgent):
             return None
 
     async def _think(self) -> AgentResponse:
-        messages = self.context.get_messages()
+        messages = self.context_manager.get_messages()
 
         try:
             # 1. 调用 LLM
@@ -70,6 +86,7 @@ class WorkerAgent(BaseAgent):
             try:
                 action_type = ActionType(raw_type)
             except ValueError:
+                logger.warning(f"未知的类型: {raw_type}，设为 STOP")
                 action_type = ActionType.STOP
 
             agent_resp = AgentResponse(
@@ -83,7 +100,7 @@ class WorkerAgent(BaseAgent):
             agent_resp.validate_params()
 
             # 5. 业务逻辑增强：处理确认逻辑和提示词
-            self._enrich_action_logic(agent_resp)
+            # self._enrich_action_logic(agent_resp)
 
             return agent_resp
 
@@ -91,27 +108,28 @@ class WorkerAgent(BaseAgent):
             logger.error(f"WorkerAgent 思考过程出错: {e}")
             raise
 
-    def _enrich_action_logic(self, resp: AgentResponse) -> None:
-        """
-        专门处理特定 Action 的业务增强逻辑（如确认提示词、安全检查）
-        """
-        if resp.action_type == ActionType.EXECUTE_COMMAND:
-            command = resp.action_params.get("command", "")
+    # def _enrich_action_logic(self, resp: AgentResponse) -> None:
+    #     """
+    #     专门处理特定 Action 的业务增强逻辑（如确认提示词、安全检查）
+    #     """
+    #     if resp.action_type == ActionType.EXECUTE_COMMAND:
+    #         command = resp.action_params.get("command", "")
             
-            # 标记需要人工确认
-            resp.requires_confirmation = True
-            resp.confirmation_prompt = f"⚠️ 准备执行 Shell 命令:\n  > {command}\n是否允许？"
+    #         # 标记需要人工确认
+    #         resp.requires_confirmation = True
+    #         resp.confirmation_prompt = f"⚠️ 准备执行 Shell 命令:\n  > {command}\n是否允许？"
             
-        elif resp.action_type == ActionType.STOP:
-            # 如果 stop 参数里没 answer，把 content 补进去
-            if "answer" not in resp.action_params:
-                resp.action_params["answer"] = resp.content
+    #     elif resp.action_type == ActionType.STOP:
+    #         # 如果 stop 参数里没 answer，把 content 补进去
+    #         if "answer" not in resp.action_params:
+    #             resp.action_params["answer"] = resp.content
 
-    async def _execute_action(self, action_type: str, action_params: Dict[str, Any]) -> str:
+
+    async def _execute_action(self, action_type: ActionType, action_params: Dict[str, Any]) -> str:
         """执行action"""
         logger.info(f"执行action: {action_type}, 参数: {action_params}")
         # 通过工具注册表执行工具
-        result = self.tools.execute_tool(action_type, action_params)
+        result = await self.tools.execute_tool(action_type.value, action_params)
         logger.info(f"工具执行结果: {result}")
         return result
 

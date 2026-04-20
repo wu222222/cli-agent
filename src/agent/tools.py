@@ -1,17 +1,20 @@
-from typing import Dict, Any, Callable, Optional, List
+from typing import Dict, Any, Callable, Optional, List, Union, Awaitable
 
 from abc import ABC, abstractmethod
 from pydantic import BaseModel, Field
 import json
 
+from .types import *
+
 
 class Tool(BaseModel):
     name: str
     description: str
-    parameters: Dict[str, Any] = field(default_factory=dict)
-    required_params: List[str] = field(default_factory=list)
+    parameters: Dict[str, Any] = Field(default_factory=dict)
+    required_params: List[str] = Field(default_factory=list)
 
-    handler: Optional[Callable] = None
+    # 支持同步或异步处理函数
+    handler: Optional[Union[Callable[..., Any], Callable[..., Awaitable[Any]]]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -36,11 +39,13 @@ class ToolRegistry:
         self._register_default_tools()
 
     def _register_default_tools(self) -> None:
-        """注册默认工具"""
-        # execute_command 工具
-        execute_command_tool = Tool(
-            name="execute_command",
-            description="在 Docker 容器中执行 Shell 命令",
+        """
+        在这里只定义工具的说明文档。
+        具体的 handler（如 docker 执行逻辑）建议在外部（如在 Worker 初始化时）注入。
+        """
+        self.register(Tool(
+            name=ActionType.EXECUTE_COMMAND.value,
+            description="在指定的 Docker 容器中执行 Shell 命令",
             parameters={
                 "command": {
                     "type": "string",
@@ -48,8 +53,7 @@ class ToolRegistry:
                 }
             },
             required_params=["command"]
-        )
-        self.register(execute_command_tool)
+        ))
 
     def register(self, tool: Tool) -> None:
         self._tools[tool.name] = tool
@@ -63,35 +67,54 @@ class ToolRegistry:
     def get_all_tools(self) -> List[Dict[str, Any]]:
         return [tool.to_dict() for tool in self._tools.values()]
 
-    def execute_tool(self, name: str, params: Dict[str, Any]) -> str:
+    # def execute_tool(self, name: str, params: Dict[str, Any]) -> str:
+    #     tool = self.get_tool(name)
+    #     if not tool:
+    #         return f"错误: 未找到工具 '{name}'"
+
+    #     if not tool.validate_params(params):
+    #         return f"错误: 工具 '{name}' 参数验证失败，缺少必需参数"
+
+    #     if tool.handler:
+    #         try:
+    #             result = tool.handler(**params)
+    #             return str(result)
+    #         except Exception as e:
+    #             return f"错误: 工具执行失败 - {str(e)}"
+    #     else:
+    #         return f"错误: 工具 '{name}' 没有设置处理函数"
+
+    
+    async def execute_tool(self, name: str, params: Dict[str, Any]) -> str:
+        """执行工具的主入口，增加强类型校验"""
         tool = self.get_tool(name)
         if not tool:
             return f"错误: 未找到工具 '{name}'"
 
-        if not tool.validate_params(params):
-            return f"错误: 工具 '{name}' 参数验证失败，缺少必需参数"
+        if not tool.handler:
+            return f"错误: 工具 '{name}' 未绑定 handler"
 
-        if tool.handler:
-            try:
-                result = tool.handler(**params)
-                return str(result)
-            except Exception as e:
-                return f"错误: 工具执行失败 - {str(e)}"
-        else:
-            return f"错误: 工具 '{name}' 没有设置处理函数"
-
-    def parse_tool_call(self, response: str) -> Optional[Dict[str, Any]]:
+        # 1. 核心优化：利用 types.py 里的 Pydantic 模型进行二次校验
         try:
-            if "```json" in response:
-                json_str = response.split("```json")[1].split("```")[0].strip()
-            elif "```" in response:
-                json_str = response.split("```")[1].split("```")[0].strip()
-            else:
-                json_str = response.strip()
+            action_enum = ActionType(name)
+            schema_class = ACTION_SCHEMA_MAP.get(action_enum)
+            if schema_class:
+                # 这一步确保了传入 handler 的参数绝对符合定义
+                validated_data = schema_class.model_validate(params)
+                params = validated_data.model_dump()
+        except (ValueError, ValidationError) as e:
+            return f"错误: 参数校验失败 - {str(e)}"
 
-            data = json.loads(json_str)
-            if "action" in data:
-                return data
-            return None
-        except (json.JSONDecodeError, IndexError):
-            return None
+        # 2. 异步/同步兼容执行
+        try:
+            if callable(tool.handler):
+                import inspect
+                if inspect.iscoroutinefunction(tool.handler):
+                    result = await tool.handler(**params)
+                else:
+                    result = tool.handler(**params)
+                return str(result)
+        except Exception as e:
+            return f"错误: 执行异常 - {str(e)}"
+
+        return "错误: 未知的执行路径"

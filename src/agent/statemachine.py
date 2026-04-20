@@ -1,7 +1,8 @@
 from enum import Enum
 from typing import Dict, Any, Callable, Optional, Type, TYPE_CHECKING,NamedTuple
 from abc import ABC, abstractmethod
-from .base import AgentResponse, AgentState,BaseStateMachine,BaseAgent,ActionType,State,StateData,ThinkingToExecutingData,ExecutionResultData,ErrorData,StateTransition
+from .base import BaseStateMachine,BaseAgent,State
+from .types import *
 from src.logger import get_logger
 
 logger = get_logger(__name__)
@@ -51,22 +52,23 @@ class ThinkingState(State):
         # 这里决定了“数据包”的封装
         needs_confirm = False
         prompt = ""
+
         # 根据响应决定下一个状态
         if self.response and self.response.action_type == ActionType.STOP:
             # 这里可以使用我们在 base.py 里规范化的方法
             answer = self.response.action_params.get("answer", self.response.content)
-            self.agent.context.add_assistant_message(self.response.content)
-            self.agent.context.set_final_answer(answer)
+            self.agent.context_manager.add_assistant_message(self.response.content)
+            self.agent.context_manager.set_final_answer(answer)
             return StateTransition(state=AgentState.COMPLETED)
 
         # 2. 处理确认逻辑
-        if self.response.action_type == ActionType.EXECUTE_COMMAND:
+        if self.response and self.response.action_type == ActionType.EXECUTE_COMMAND:
             needs_confirm = True
             prompt = f"是否允许执行: {self.response.action_params.get('command')}?"
         
         # 组装“协议头”
-        data = ThinkingToExecutingData(
-            response=resp,
+        out_data = ThinkingToExecutingData(
+            response=self.response,
             requires_confirmation=needs_confirm,
             confirmation_prompt=prompt
         )
@@ -74,13 +76,13 @@ class ThinkingState(State):
         if needs_confirm:
             return StateTransition(
                 state=AgentState.WAITING_CONFIRMATION, 
-                data=data
+                data=out_data
             )
 
         # 3. 处理执行逻辑 (通用动作)
         return StateTransition(
             state=AgentState.EXECUTING, 
-            data=data
+            data=out_data
         )
 
 
@@ -123,15 +125,15 @@ class ExecutingState(State):
                 observation = await self.agent._execute_action(self.response.action_type, self.response.action_params)
                 
                 # 添加assistant消息和工具结果到上下文
-                self.agent.context.add_assistant_message(self.response.content)
-                self.agent.context.add_tool_result(
+                self.agent.context_manager.add_assistant_message(self.response.content)
+                self.agent.context_manager.add_tool_result(
                     self.response.action_type,
                     observation
                 )
                 return StateTransition(state=AgentState.THINKING, data=ExecutionResultData(observation=observation, action_type=self.response.action_type))
             except Exception as e:
                 if hasattr(self.agent, 'context'):
-                    self.agent.context.set_final_answer(f"执行错误: {str(e)}")
+                    self.agent.context_manager.set_final_answer(f"执行错误: {str(e)}")
                 return StateTransition(state=AgentState.ERROR, data=ErrorData(error_message=f"执行错误: {str(e)}"))
         return StateTransition(state=AgentState.ERROR, data=ErrorData(error_message="执行状态未提供响应"))
         
@@ -149,12 +151,12 @@ class WaitingConfirmationState(State):
     def __init__(self, state_machine: BaseStateMachine):
         super().__init__(state_machine)
         self.state = AgentState.WAITING_CONFIRMATION
-        self.response:Optional[AgentResponse] = None
+        self.data:Optional[ThinkingToExecutingData] = None
     
     def on_enter(self, data: Optional[StateData] = None):
         self.response = None
         if isinstance(data, ThinkingToExecutingData):
-            self.response = data.response
+            self.data = data
         else:
             logger.error(f"WaitingConfirmationState 期待 ThinkingToExecutingData, 但收到 {type(data)}")
         pass
@@ -165,17 +167,17 @@ class WaitingConfirmationState(State):
     async def execute(self, data: Optional[StateData] = None) -> StateTransition:
         """执行等待确认状态逻辑"""
         # 获取之前保存的响应
-        if self.response is None:
+        if self.data is None:
             logger.error("等待确认状态未提供响应")
             return StateTransition(state=AgentState.ERROR, data=ErrorData(error_message="等待确认状态未提供响应"))
         
-        if self.response and self.response.requires_confirmation:
-            confirmation_prompt = self.response.confirmation_prompt 
+        if self.data and self.data.requires_confirmation:
+            confirmation_prompt = self.data.confirmation_prompt 
             confirmed = self.confirmation_handler(confirmation_prompt)
             if confirmed:
-                return StateTransition(state=AgentState.EXECUTING, data={'response': self.response})
+                return StateTransition(state=AgentState.EXECUTING, data=self.data)
             else:
-                self.agent.context.set_final_answer("操作已取消")
+                self.agent.context_manager.set_final_answer("操作已取消")
                 return StateTransition(state=AgentState.COMPLETED)
            
         return StateTransition(state=AgentState.ERROR, data=ErrorData(error_message="操作已取消"))
@@ -259,7 +261,8 @@ class WorkerStateMachine(BaseStateMachine):
             AgentState.THINKING: ThinkingState(self),
             AgentState.EXECUTING: ExecutingState(self),
             AgentState.WAITING_CONFIRMATION: WaitingConfirmationState(self),
-            AgentState.COMPLETED: CompletedState(self)
+            AgentState.COMPLETED: CompletedState(self),
+            AgentState.ERROR: ErrorState(self)
         }
         self._current_state = self._states[AgentState.IDLE]
 

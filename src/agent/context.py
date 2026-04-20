@@ -1,6 +1,20 @@
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
-from .base import Message, StateTrace
+
+from src.agent.types import StateData
+
+@dataclass
+class Message:
+    role: str  # user, assistant, system, tool
+    content: str
+    tool_call_id: Optional[str] = None
+    tool_name: Optional[str] = None
+
+@dataclass
+class StateTrace:
+    from_state: str
+    to_state: str
+    data: Optional[StateData] = None
 
 
 
@@ -107,21 +121,24 @@ class ContextManager:
         else:
             return self.get_context_summary()
 
-    def add_state_trace(self, from_state: str, to_state: str, params: Optional[Dict[str, Any]] = None) -> None:
+    def add_state_trace(self, from_state: str, to_state: str, data: Optional[StateData] = None) -> None:
         """添加状态转换记录"""
-        self.state_trace.append(StateTrace(from_state=from_state, to_state=to_state, params=params))
+        self.state_trace.append(StateTrace(from_state=from_state, to_state=to_state, data=data))
 
     def get_state_trace(self) -> str:
-        """格式化状态转换记录
+        """格式化状态转换记录"""
+        lines = [f"--- 状态转换追踪 (Total: {len(self.state_trace)}) ---"]
         
-        Returns:
-            str: 格式化后的状态转换记录   
-        """
-        lines = [f"状态转换记录（共 {len(self.state_trace)} 条）:"]
         for i, trace in enumerate(self.state_trace, 1):
-            lines.append(f"{i}. 从 {trace.from_state} 到 {trace.to_state}")
-            if trace.params:
-                lines.append(f"   参数: {trace.params}")
+            # 基础路线信息
+            line = f"{i:02d}. [{trace.from_state}] -> [{trace.to_state}]"
+            lines.append(line)
+            
+            # 如果有数据，调用我们自定义的格式化方法
+            if trace.data:
+                # 关键点：这里会自动根据具体的子类调用对应的 format_for_log
+                lines.append(f"    └─ {trace.data.format_for_log()}")
+                
         return "\n".join(lines)
 
     def set_final_answer(self, answer: str) -> None:

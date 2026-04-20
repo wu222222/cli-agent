@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.logger import get_logger, setup_logger
 from src.llm import LLMClient
-from src.agent import Agent
+from src.agent.agent import WorkerAgent
 from src.executor import DockerExecutor
 
 # 设置日志 - 使用结构化日志，减少噪音
@@ -20,7 +20,7 @@ setup_logger(
 logger = get_logger(__name__)
 
 
-def setup_tools(agent, executor):
+def setup_tools(agent: WorkerAgent, executor: DockerExecutor):
     """为Agent注册工具处理函数"""
     # 注册 execute_command 工具的处理函数
     def execute_command_handler(command):
@@ -42,20 +42,12 @@ def setup_tools(agent, executor):
         except Exception as e:
             # 错误信息也进行结构化，防止 AI 误以为是正常的 stdout
             return f"<error>执行命令失败: {str(e)}</error>"
-    # def execute_command_handler(command):
-    #     """执行命令的处理函数"""
-    #     try:
-    #         logger.info(f"执行命令: {command}")
-    #         stdout, stderr, exit_code = executor.execute_command(command)
-    #         result = f"退出码: {exit_code}\n\n标准输出:\n{stdout}\n\n标准错误:\n{stderr}"
-    #         return result
-    #     except Exception as e:
-    #         return f"执行命令失败: {str(e)}"
 
     # 获取工具并设置处理函数
     execute_command_tool = agent.tools.get_tool("execute_command")
     if execute_command_tool:
         execute_command_tool.handler = execute_command_handler
+    
 
 
 
@@ -77,33 +69,12 @@ async def test_safe_cli_agent():
         llm_client = LLMClient()
         
         # 3. 初始化 Agent
-        agent = Agent(llm_client=llm_client)
+        agent = WorkerAgent(llm_client=llm_client)
         
         # 4. 设置工具处理函数
         setup_tools(agent, executor)
-        
-        # 5. 设置确认处理器
-        def confirmation_handler(prompt: str) -> bool:
-            """人机确认处理器"""
-            print("\n" + "=" * 60)
-            print("🔐 安全确认")
-            print("=" * 60)
-            print(f"⚠️  {prompt}")
-            print("\n该命令将在隔离的 Docker 容器中执行，不会影响宿主机。")
-            
-            # 等待用户确认
-            while True:
-                confirm = input("\n是否确认执行？(y/n): ").lower().strip()
-                if confirm == 'y':
-                    return True
-                elif confirm == 'n':
-                    return False
-                else:
-                    print("请输入 'y' 或 'n'")
-        
-        agent.set_confirmation_handler(confirmation_handler)
-        
-        # 6. 测试示例
+
+        # 5. 测试示例
         test_cases = [
             "简述当前目录下这几个文件的内容"
         ]
@@ -126,9 +97,9 @@ async def test_safe_cli_agent():
             
     finally:
         #输出历史信息
-        logger.debug(agent.context.format_history("detailed"))
+        logger.debug(agent.context_manager.format_history("detailed"))
         
-        logger.debug(agent.context.get_state_trace())
+        logger.debug(agent.context_manager.get_state_trace())
         # 清理资源
         executor.close()
         print("\n" + "=" * 60)

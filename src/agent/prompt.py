@@ -1,6 +1,6 @@
 from typing import Dict, Any, List, Type
 from pydantic import BaseModel
-from .base import ActionType, ACTION_SCHEMA_MAP
+from .types import ActionType, ACTION_SCHEMA_MAP
 
 class PromptManager:
     """Prompt管理器，支持动态 Schema 生成和多角色切换"""
@@ -33,15 +33,15 @@ class PromptManager:
         
         return "\n".join(docs)
 
-    def get_system_prompt(self, agent_name: str) -> str:
-        """根据 Agent 名称生成完整的 System Prompt"""
+    # def get_system_prompt(self, agent_name: str) -> str:
+    #     """根据 Agent 名称生成完整的 System Prompt"""
         
-        if agent_name == "worker":
-            return self._build_worker_prompt()
-        elif agent_name == "judge":
-            return self._build_judge_prompt()
+    #     if agent_name == "worker":
+    #         return self._build_worker_prompt()
+    #     elif agent_name == "judge":
+    #         return self._build_judge_prompt()
         
-        return "你是一个通用的 AI 助手。"
+    #     return "你是一个通用的 AI 助手。"
 
     def _build_worker_prompt(self) -> str:
         # 定义 Worker 允许使用的动作
