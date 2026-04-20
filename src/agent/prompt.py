@@ -65,6 +65,7 @@ class PromptManager:
                 "parameters": {{ ...参数内容... }}
             }}
         }}
+        ```
         """
 
         return prompt
@@ -86,5 +87,14 @@ class PromptManager:
 {self._generate_action_docs(allowed)}
 
 响应格式要求
-(同上，使用 JSON 格式输出)
+请严格按照以下 JSON 结构输出，不要包含任何额外的解释文字：
+```json
+{{
+    "thought": "你的思考过程",
+    "action": {{
+        "type": "Action 类型名称",
+        "parameters": {{ ...参数内容... }}
+    }}
+}}
+```
 """

@@ -14,3 +14,5 @@ state状态转移的信息应该保存在哪？
 如果state状态转移的信息既需要用于状态转移，又需要用于上下文管理呢？
 
 - 同时保存在 state_machine 和 context 中。
+
+ContextManager 在管理多个Agent时，共享context。

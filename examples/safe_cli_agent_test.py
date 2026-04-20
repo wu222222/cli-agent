@@ -4,11 +4,11 @@ import sys
 import logging
 
 # 添加项目根目录到Python路径
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.logger import get_logger, setup_logger
 from src.llm import LLMClient
-from src.agent.agent import WorkerAgent
+from src.agent import WorkerAgent, JudgeAgent,ContextManager,PromptManager,ToolRegistry
 from src.executor import DockerExecutor
 
 # 设置日志 - 使用结构化日志，减少噪音
@@ -67,10 +67,15 @@ async def test_safe_cli_agent():
     try:
         # 2. 初始化 LLM 客户端
         llm_client = LLMClient()
-        
+
         # 3. 初始化 Agent
-        agent = WorkerAgent(llm_client=llm_client)
+        context_manager = ContextManager()
+        prompt_manager = PromptManager()
+        tools = ToolRegistry()
         
+        judge_agent = JudgeAgent(llm_client=llm_client,context_manager=context_manager,prompt_manager=prompt_manager,tool_registry=tools)
+        agent = WorkerAgent(llm_client=llm_client,context_manager=context_manager,prompt_manager=prompt_manager,tool_registry=tools,judge_agent=judge_agent)
+    
         # 4. 设置工具处理函数
         setup_tools(agent, executor)
 

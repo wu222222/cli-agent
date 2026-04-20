@@ -17,6 +17,8 @@ class AgentState(Enum):
     WAITING_CONFIRMATION = "waiting_confirmation"
     COMPLETED = "completed"
     ERROR = "error"
+    JUDGE = "judge"
+    # WAITING_JUDGE = "waiting_judge"
 
 class LLMAction(BaseModel):
     """对应 Prompt 中的 action 部分"""

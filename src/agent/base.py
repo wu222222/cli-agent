@@ -47,7 +47,7 @@ class BaseAgent(ABC):
 
     async def run(self, user_input: str) -> str:
         """通用的 ReAct 循环调度逻辑"""
-        self.context_manager.add_user_message(user_input)
+        self.context_manager.add_user_message(self.name,user_input)
         # 统一从起始状态开始（假设子类状态机都有初始状态）
         self.state_machine.transition(AgentState.THINKING)
 
@@ -141,6 +141,7 @@ class BaseStateMachine(ABC):
         # 统一的日志记录
         if self.agent and self.agent.context_manager:
             self.agent.context_manager.add_state_trace(
+                agent_name=self.agent.name,
                 from_state=self._current_state_enum.value,
                 to_state=new_state_enum.value,
                 data=data
