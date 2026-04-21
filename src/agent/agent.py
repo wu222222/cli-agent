@@ -166,13 +166,19 @@ class JudgeAgent(BaseAgent):
 
     async def _think(self,target_agent_name: str) -> AgentResponse:
         # Judge 会看到 Worker 的所有操作记录
-        messages = self.context_manager.get_system_prompt(self.name)
+        messages = [self.context_manager.get_system_format_prompt(self.name)]
         messages.extend(self.context_manager.get_agent_messages(agent_name=target_agent_name,include_system_prompt=False))
-
+        
+        # return None
         response_text = await self.llm_client.achat(messages)
         
         # 使用我们之前写好的通用解析逻辑
         llm_output = self._parse_action(response_text)
+
+        # debug
+        # logger.debug(f"JudgeAgent 思考后，response_text: {response_text}")
+
+
 
         if not llm_output:
                 # 解析失败的兜底逻辑

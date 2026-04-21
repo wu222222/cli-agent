@@ -9,7 +9,7 @@ class Message(BaseModel):
     content: str
     sender: str  # 发送方标识：如 "user", "system", "WorkerAgent", "JudgeAgent"
     # 接收方列表：如果是 ["*"] 表示广播给所有人，或者指定具体 Agent 列表 ["JudgeAgent"] 暂时不需要使用
-    # receivers: List[str] = Field(default_factory=lambda: ["*"])
+    receivers: List[str] = Field(default_factory=lambda: ["*"])
     
     # 扩展字段：用于工具调用
     tool_call_id: Optional[str] = None
@@ -40,33 +40,40 @@ class ContextManager:
         """获取特定的 Agent 的系统提示词"""
         return self.system_prompts.get(agent_name, "")
 
-    def add_message(self, role: str, content: str, sender: str, tool_call_id: Optional[str] = None, tool_name: Optional[str] = None) -> None:
+    def get_system_format_prompt(self, agent_name: str) -> Dict[str, str]:
+        """获取特定的 Agent 的系统格式化提示词，规范化格式，返回字典"""
+        return {"role": "system", "content": self.system_prompts.get(agent_name, "")}
+
+    def add_message(self, role: str, content: str, sender: str, receivers: List[str] = ["*"], tool_call_id: Optional[str] = None, tool_name: Optional[str] = None) -> None:
         """统一的消息添加方法"""
         msg = Message(
             role=role,
             content=content,
             sender=sender,
+            receivers=receivers,
         )
         if role == "tool":
             msg.tool_call_id = tool_call_id
             msg.tool_name = tool_name
         self.messages.append(msg)
 
-    def add_user_message(self,agent_name: str, content: str) -> None:
+    def add_user_message(self,agent_name: str, content: str, receivers: List[str] = ["*"]) -> None:
         """添加用户消息"""
-        self.add_message(role="user", content=content, sender=agent_name)
+        self.add_message(role="user", content=content, sender=agent_name, receivers=receivers)
 
-    def add_assistant_message(self,agent_name: str, content: str) -> None:
+    def add_assistant_message(self,agent_name: str, content: str, receivers: List[str] = ["*"]) -> None:
         """添加助手消息"""
-        self.add_message(role="assistant", content=content, sender=agent_name)
+        self.add_message(role="assistant", content=content, sender=agent_name, receivers=receivers)
 
-    def add_tool_result(self,agent_name: str, tool_name: str, result: str, tool_call_id: Optional[str] = None) -> None:
+    def add_tool_result(self,agent_name: str, result: str, tool_name: str, tool_call_id: Optional[str] = None, receivers: List[str] = ["*"]) -> None:
+        # 对tool_name进行类型检测，确保是字符串，目前不需要
         """添加工具执行结果"""
         self.add_message(role="tool",
             sender=agent_name,
             content=result,
             tool_call_id=tool_call_id,
-            tool_name=tool_name
+            tool_name=tool_name,
+            receivers=receivers
         )
 
     def get_agent_messages(self, agent_name: str, include_system_prompt: bool = True) -> List[Dict[str, Any]]:
@@ -88,7 +95,7 @@ class ContextManager:
         # 2. 过滤并格式化对话历史
         for msg in self.messages:
             # 权限检查：是否是发给我的
-            if msg.sender == agent_name:
+            if msg.sender == agent_name and "*" in msg.receivers or agent_name in msg.receivers:
                 item = {"role": msg.role, "content": msg.content}
                 # 如果是工具结果，通常需要带上 ID
                 if msg.role == "tool":
@@ -144,7 +151,7 @@ class ContextManager:
         elif format_type == "detailed":
             lines = [f"历史消息详情（共 {len(self.messages)} 条）:"]
             for i, msg in enumerate(self.messages, 1):
-                lines.append(f"\n{i}. 角色: {msg.role} 发送者: {msg.sender}")
+                lines.append(f"\n{i}. 角色: {msg.role} 发送者: {msg.sender} 接收者: {msg.receivers}")
                 if msg.tool_name:
                     lines.append(f"   工具: {msg.tool_name}")
                 if msg.tool_call_id:
@@ -156,7 +163,7 @@ class ContextManager:
             import json
             messages_data = []
             for msg in self.messages:
-                msg_dict = {"role": msg.role, "sender": msg.sender, "content": msg.content}
+                msg_dict = {"role": msg.role, "sender": msg.sender, "receivers": msg.receivers, "content": msg.content}
                 if msg.tool_name:
                     msg_dict["tool_name"] = msg.tool_name
                 if msg.tool_call_id:

@@ -47,7 +47,7 @@ class BaseAgent(ABC):
 
     async def run(self, user_input: str) -> str:
         """通用的 ReAct 循环调度逻辑"""
-        self.context_manager.add_user_message(self.name,user_input)
+        self.context_manager.add_user_message(self.name,user_input, receivers=[self.name])
         # 统一从起始状态开始（假设子类状态机都有初始状态）
         self.state_machine.transition(AgentState.THINKING)
 
@@ -68,7 +68,7 @@ class BaseAgent(ABC):
 
             return "达到最大迭代次数"
         except Exception as e:
-            self.state_machine.transition(AgentState.ERROR, error=str(e))
+            self.state_machine.transition(AgentState.ERROR, data=ErrorData(error_message=str(e)))
             return f"系统崩溃: {str(e)}"
 
     @abstractmethod

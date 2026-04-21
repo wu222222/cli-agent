@@ -55,6 +55,22 @@ class ToolRegistry:
             required_params=["command"]
         ))
 
+        self.register(Tool(
+            name=ActionType.CALL_JUDGE.value,
+            description="让法官判断最终结果是否符合预期",
+            parameters={
+                "final_answer": {
+                    "type": "string",
+                    "description": "最终准备给用户的判断结果"
+                },
+                "evidence_summary": {
+                    "type": "string",
+                    "description": "简述你得出此结论的证据链（可选）"
+                }
+            },
+            required_params=["final_answer"]
+        ))
+
     def register(self, tool: Tool) -> None:
         self._tools[tool.name] = tool
 

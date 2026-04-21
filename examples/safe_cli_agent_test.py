@@ -23,25 +23,23 @@ logger = get_logger(__name__)
 def setup_tools(agent: WorkerAgent, executor: DockerExecutor):
     """为Agent注册工具处理函数"""
     # 注册 execute_command 工具的处理函数
-    def execute_command_handler(command):
+    def execute_command_handler(command) -> str:
         """执行命令的处理函数 (结构化增强版)"""
         try:
             logger.info(f"执行命令: {command}")
             stdout, stderr, exit_code = executor.execute_command(command)
             
-            # 使用 XML 标签包裹不同维度的输出
-            # 这种方式能够强迫模型在注意力机制上将 stdout 和 stderr 分开
-            result = (
-                f"<command_execution>\n"
-                f"<exit_code>{exit_code}</exit_code>\n"
-                f"<stdout>\n{stdout}\n</stdout>\n"
-                f"<stderr>\n{stderr}\n</stderr>\n"
-                f"</command_execution>"
-            )
-            return result
+            result = []
+            result.append(f"command: {command}\n")
+            if exit_code == 0:
+                result.append(f"exit_code: {exit_code}\n")
+                result.append(f"stdout:\n{stdout}\n")
+            else:
+                result.append(f"exit_code: {exit_code}\n")
+                result.append(f"stderr:\n{stderr}\n")
+            return "\n".join(result)
         except Exception as e:
-            # 错误信息也进行结构化，防止 AI 误以为是正常的 stdout
-            return f"<error>执行命令失败: {str(e)}</error>"
+            return f"执行命令失败: {str(e)}"
 
     # 获取工具并设置处理函数
     execute_command_tool = agent.tools.get_tool("execute_command")
@@ -75,7 +73,8 @@ async def test_safe_cli_agent():
         
         judge_agent = JudgeAgent(llm_client=llm_client,context_manager=context_manager,prompt_manager=prompt_manager,tool_registry=tools)
         agent = WorkerAgent(llm_client=llm_client,context_manager=context_manager,prompt_manager=prompt_manager,tool_registry=tools,judge_agent=judge_agent)
-    
+        agent.max_iterations = 25
+
         # 4. 设置工具处理函数
         setup_tools(agent, executor)
 

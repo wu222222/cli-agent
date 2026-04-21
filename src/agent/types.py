@@ -6,6 +6,7 @@ class ActionType(Enum):
     # 核心动作
     EXECUTE_COMMAND = "execute_command"
     STOP = "stop"
+    CALL_JUDGE = "call_judge"
     
     # 未来可以轻松扩展 Judge 专用的动作
     REVIEW = "review"
@@ -64,10 +65,16 @@ class ReviewParams(BaseModel):
     reason: str = Field(description="判定通过或失败的理由")
     suggestions: Optional[str] = Field(None, description="如果失败，给 Worker 的改进建议")
 
+class CallJudgeParams(BaseModel):
+    final_answer: str = Field(description="你准备给用户的最终结果")
+    evidence_summary: str = Field(None,description="简述你得出此结论的证据链（可选）")
+
+
 ACTION_SCHEMA_MAP: Dict[ActionType, Type[BaseModel]] = {
     ActionType.EXECUTE_COMMAND: ExecuteCommandParams,
     ActionType.STOP: StopParams,
     ActionType.REVIEW: ReviewParams,
+    ActionType.CALL_JUDGE: CallJudgeParams,
 }
 
 class StateData(BaseModel):

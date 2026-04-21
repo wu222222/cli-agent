@@ -49,41 +49,40 @@ class ThinkingState(State):
         
         logger.debug(f"状态{self.state},response:{self.response}")
 
-        # 这里决定了“数据包”的封装
-        needs_confirm = False
-        prompt = ""
-
         # 根据响应决定下一个状态
-        if self.response and self.response.action_type == ActionType.STOP:
-            # 先进入判断状态，再进入完成状态
-            answer = self.response.action_params.get("answer", self.response.content)
-            self.agent.context_manager.add_assistant_message(self.agent.name,self.response.content)
-            self.agent.context_manager.set_final_answer(answer)
-            return StateTransition(state=AgentState.JUDGE)
+        match self.response.action_type:
+            case ActionType.STOP:
+                # 先进入判断状态，再进入完成状态
+                answer = self.response.action_params.get("answer", self.response.content)
+                self.agent.context_manager.add_assistant_message(self.agent.name,self.response.content,[self.agent.name])
+                self.agent.context_manager.set_final_answer(answer)
+                return StateTransition(state=AgentState.COMPLETED)
 
-        # 2. 处理确认逻辑
-        if self.response and self.response.action_type == ActionType.EXECUTE_COMMAND:
-            needs_confirm = True
-            prompt = f"是否允许执行: {self.response.action_params.get('command')}?"
-        
-        # 组装“协议头”
-        out_data = ThinkingToExecutingData(
-            response=self.response,
-            requires_confirmation=needs_confirm,
-            confirmation_prompt=prompt
-        )
+            case ActionType.EXECUTE_COMMAND:
+                needs_confirm = True
+                prompt = f"是否允许执行: {self.response.action_params.get('command')}?"
+                out_data = ThinkingToExecutingData(
+                    response=self.response,
+                    requires_confirmation=needs_confirm,
+                    confirmation_prompt=prompt
+                )
+                return StateTransition(
+                    state=AgentState.WAITING_CONFIRMATION, 
+                    data=out_data
+                )
 
-        if needs_confirm:
-            return StateTransition(
-                state=AgentState.WAITING_CONFIRMATION, 
-                data=out_data
-            )
+            case ActionType.CALL_JUDGE:
+                return StateTransition(
+                    state=AgentState.EXECUTING, 
+                    data=ThinkingToExecutingData(response=self.response)
+                )
 
-        # 3. 处理执行逻辑 (通用动作)
-        return StateTransition(
-            state=AgentState.EXECUTING, 
-            data=out_data
-        )
+            case _:
+                # 3. 处理执行逻辑 (通用动作)
+                return StateTransition(
+                    state=AgentState.EXECUTING, 
+                    data= ThinkingToExecutingData(response=self.response)
+                )
 
 
     def get_response(self) -> Optional[AgentResponse]:
@@ -125,10 +124,10 @@ class ExecutingState(State):
                 observation = await self.agent._execute_action(self.response.action_type, self.response.action_params)
                 
                 # 添加assistant消息和工具结果到上下文
-                self.agent.context_manager.add_assistant_message(self.agent.name,self.response.content)
+                self.agent.context_manager.add_assistant_message(self.agent.name,self.response.content,[self.agent.name])
                 self.agent.context_manager.add_tool_result(
                     agent_name=self.agent.name,
-                    tool_name=self.response.action_type,
+                    tool_name=self.response.action_type.value,
                     result=observation
                 )
                 return StateTransition(state=AgentState.THINKING, data=ExecutionResultData(observation=observation, action_type=self.response.action_type))
@@ -195,7 +194,7 @@ class WaitingConfirmationState(State):
         print("🔐 安全确认")
         print("=" * 60)
         print(f"⚠️  {prompt}")
-        print("\n该命令将在隔离的 Docker 容器中执行，不会影响宿主机。")
+        print("=" * 60)
         
         # 等待用户确认
         while True:
@@ -271,19 +270,30 @@ class JudgeState(State):
         # 3. Judge 执行一次纯粹的推理
         # 注意：这里调用的是 judge._think() 而不是 judge.chat()
         # 因为我们不需要启动 Judge 的状态机，只需要它的 LLM 解析结果
-        review_resp: AgentResponse = await judge._think()
+        # 判断_think()是否支持传入target_agent_name参数
+        if hasattr(judge, '_think'):
+            if not hasattr(judge._think, '__call__'):
+                raise ValueError("JudgeAgent._think 方法必须是可调用的")
+        
+        review_resp: AgentResponse = await judge._think(target_agent_name=self.agent.name)
         
         # 4. 根据 Judge 的 ActionType.REVIEW 结果决定 Worker 的去向
         review_data = review_resp.validate_params() # 拿到 ReviewParams 对象
 
         if review_data.is_passed:
+            self.agent.context_manager.add_tool_result(
+                agent_name=judge.name,
+                tool_name="review",
+                result=f"评审通过,原因：{review_data.reason}",
+                receivers=[self.agent.name]
+            )
             return StateTransition(state=AgentState.COMPLETED)
         else:
-            # 给 Worker 留言，把它踢回 THINKING
-            self.agent.context.add_message(
-                role=MessageRole.TOOL,
-                content=f"评审打回：{review_data.reason}",
-                sender=judge.name
+            self.agent.context_manager.add_tool_result(
+                agent_name=judge.name,
+                tool_name="review",
+                result=f"评审打回,原因：{review_data.reason}",
+                receivers=[self.agent.name]
             )
             return StateTransition(state=AgentState.THINKING)
 
@@ -336,5 +346,6 @@ class JudgeStateMachine(BaseStateMachine):
 
         self._states = {
             AgentState.IDLE: IdleState(self),
+            AgentState.THINKING: JudgeState(self),
         }
         self._current_state = self._states[AgentState.IDLE]
