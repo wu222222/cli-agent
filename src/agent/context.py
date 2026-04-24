@@ -1,29 +1,7 @@
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Optional, Union, Literal
 from pydantic import BaseModel, Field
 
-from src.agent.types import StateData
-
-
-class Message(BaseModel):
-    role: str  # user, assistant, system, tool
-    content: str
-    sender: str  # 发送方标识：如 "user", "system", "WorkerAgent", "JudgeAgent"
-    # 接收方列表：如果是 ["*"] 表示广播给所有人，或者指定具体 Agent 列表 ["JudgeAgent"] 暂时不需要使用
-    receivers: List[str] = Field(default_factory=lambda: ["*"])
-    
-    # 扩展字段：用于工具调用
-    tool_call_id: Optional[str] = None
-    tool_name: Optional[str] = None
-
-    class Config:
-        arbitrary_types_allowed = True
-
-
-class StateTrace(BaseModel):
-    agent_name: str
-    from_state: str
-    to_state: str
-    data: Optional[StateData] = None
+from src.agent.types import *
 
 class ContextManager:
     def __init__(self):
@@ -57,6 +35,11 @@ class ContextManager:
             msg.tool_name = tool_name
         self.messages.append(msg)
 
+    @staticmethod
+    def create_assistant_message(sender: str,content: str, receivers: List[str] = ["*"]) -> Message:
+        """创建助手消息"""
+        return Message(role="assistant", sender=sender, content=content, receivers=receivers)
+
     def add_user_message(self,agent_name: str, content: str, receivers: List[str] = ["*"]) -> None:
         """添加用户消息"""
         self.add_message(role="user", content=content, sender=agent_name, receivers=receivers)
@@ -76,6 +59,19 @@ class ContextManager:
             receivers=receivers
         )
 
+    # 这只是个临时的降低token消耗的方法，后续需要根据实际情况调整
+    def get_recent_messages(self, agent_name: str, limit: int = 5, include_system_prompt: bool = True) -> List[Dict[str, Any]]:
+        """只获取最近 N 条该 Agent 可见的消息"""
+        all_messages = self.get_agent_messages(agent_name, include_system_prompt)
+        if len(all_messages) <= limit + 1: # +1 是为了保留 System Prompt
+            return all_messages
+        
+        # 保留 System Prompt (index 0)，加上最后 limit 条
+        if include_system_prompt:
+            return [all_messages[0]] + all_messages[-limit:]
+        else:
+            return all_messages[-limit:]
+
     def get_agent_messages(self, agent_name: str, include_system_prompt: bool = True) -> List[Dict[str, Any]]:
         """
         为特定的 Agent 提取它"有权看到"的消息列表
@@ -92,37 +88,28 @@ class ContextManager:
                 "content": self.system_prompts[agent_name]
             })
 
-        # 2. 过滤并格式化对话历史
+        # 2. 遍历消息池
         for msg in self.messages:
-            # 权限检查：是否是发给我的
-            if msg.sender == agent_name and "*" in msg.receivers or agent_name in msg.receivers:
+            # 判断可见性
+            is_broadcast = "*" in msg.receivers
+            is_recipient = agent_name in msg.receivers
+            is_self = msg.sender == agent_name
+            
+            if is_broadcast or is_recipient or is_self:
+                # 转换逻辑
                 item = {"role": msg.role, "content": msg.content}
-                # 如果是工具结果，通常需要带上 ID
+                # 如果是 tool 结果，必须带上 ID
                 if msg.role == "tool":
                     item["tool_call_id"] = msg.tool_call_id
                     item["name"] = msg.tool_name
-                # 如果是 assistant 且不是自己发的，可以带上 name 辅助 LLM 辨别对方身份
-                elif msg.role == "assistant" and msg.sender != agent_name:
+                # 核心优化：如果消息是别人发的，在 content 里注入 [From: XXX] 
+                # 这样模型能清晰感知到这是谁在对它说话
+                elif msg.sender != agent_name and msg.role != "system":
                     item["name"] = msg.sender
-                
+                    
                 formatted_messages.append(item)
                 
         return formatted_messages
-
-
-    # def get_context_summary(self) -> str:
-    #     """获取上下文摘要"""
-    #     summary = f"消息数量: {len(self.messages)}\n"
-    #     summary += f"系统提示: {self.system_prompt[:100]}..." if self.system_prompt else "无系统提示\n"
-        
-    #     # 显示最近的几条消息
-    #     recent_messages = self.messages[-5:]
-    #     summary += "最近消息:\n"
-    #     for msg in recent_messages:
-    #         content_preview = msg.content[:50] + "..." if len(msg.content) > 50 else msg.content
-    #         summary += f"[{msg.role}] {content_preview}\n"
-        
-    #     return summary
 
     def clear(self) -> None:
         """清空上下文"""

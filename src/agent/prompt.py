@@ -61,16 +61,17 @@ JSON 格式规范：
 
     def _build_worker_prompt(self) -> str:
         # 定义 Worker 允许使用的动作
-        allowed = [ActionType.EXECUTE_COMMAND, ActionType.STOP]
+        allowed = [ActionType.EXECUTE_COMMAND, ActionType.STOP, ActionType.CALL_JUDGE]
         
         prompt = f"""你是一个智能命令行助手，具备自我推理和工具调用能力。
 
         ## 核心原则
         {chr(10).join(self.base_principles)}
 
-        ## 异常处理规范
+        ## 处理规范
         - 如果你发现结果违背常识，请抛弃常识，尊重结果。
-        - 记住：你的职责是反映系统真实状态，而非强制让世界符合常识。
+        - 你的职责是反映系统真实状态，而非强制让世界符合常识。
+        - 再stop之前，强烈建议调用CALL_JUDGE动作，判断结果是否合理。
 
         ## 可用的 Action 类型及参数说明
         {self._generate_action_docs(allowed)}

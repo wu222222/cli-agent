@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
-from typing import Dict, Any, Optional, Type, NamedTuple
+from typing import Dict, Any, Optional, Type, Literal,List
 from enum import Enum
+
 
 class ActionType(Enum):
     # 核心动作
@@ -121,3 +122,22 @@ class StateTransition(BaseModel):
     class Config:
         arbitrary_types_allowed = True
 
+class Message(BaseModel):
+    role: Literal["user", "assistant", "system", "tool"] = Field(default="assistant")  # # user, assistant, system, tool
+    content: str
+    sender: str  # 发送方标识：如 "user", "system", "WorkerAgent", "JudgeAgent"
+    # 接收方列表：如果是 ["*"] 表示广播给所有人，或者指定具体 Agent 列表 ["JudgeAgent"] 暂时不需要使用
+    receivers: List[str] = Field(default_factory=lambda: ["*"])
+    
+    # 扩展字段：用于工具调用
+    tool_call_id: Optional[str] = None
+    tool_name: Optional[str] = None
+
+    class Config:
+        arbitrary_types_allowed = True
+
+class StateTrace(BaseModel):
+    agent_name: str
+    from_state: str
+    to_state: str
+    data: Optional[StateData] = None

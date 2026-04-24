@@ -83,10 +83,6 @@ class ThinkingState(State):
                     state=AgentState.EXECUTING, 
                     data= ThinkingToExecutingData(response=self.response)
                 )
-
-
-    def get_response(self) -> Optional[AgentResponse]:
-        return self.response
     
     def can_transition_to(self, new_state: AgentState, data: Optional[StateData] = None) -> bool:
         return new_state in [
@@ -122,7 +118,6 @@ class ExecutingState(State):
         if self.response and self.response.action_type:
             try:
                 observation = await self.agent._execute_action(self.response.action_type, self.response.action_params)
-                
                 # 添加assistant消息和工具结果到上下文
                 self.agent.context_manager.add_assistant_message(self.agent.name,self.response.content,[self.agent.name])
                 self.agent.context_manager.add_tool_result(
@@ -213,16 +208,17 @@ class CompletedState(State):
     def __init__(self, state_machine: BaseStateMachine):
         super().__init__(state_machine)
         self.state = AgentState.COMPLETED
+        self.temp_data:Optional[StateData] = None
     
     def on_enter(self, data: Optional[StateData] = None):
-        pass
+        self.temp_data = data
     
     def on_exit(self, data: Optional[StateData] = None):
         pass
     
     async def execute(self, data: Optional[StateData] = None) -> StateTransition:
         """执行完成状态逻辑"""
-        return StateTransition(state=AgentState.COMPLETED)  # 保持在完成状态
+        return StateTransition(state=AgentState.COMPLETED, data=self.temp_data)  # 保持在完成状态
     
     def can_transition_to(self, new_state: AgentState, data: Optional[StateData] = None) -> bool:
         return new_state == AgentState.IDLE
@@ -263,43 +259,34 @@ class JudgeState(State):
         pass
     
     async def execute(self, data: Optional[StateData] = None) -> StateTransition:
-        # 1. 这里的 self.agent 是 WorkerAgent
-        # 2. 我们通过状态机持有或者全局获取 JudgeAgent 实例
-        judge:BaseAgent = self.state_machine.get_judge_agent()
-        
-        # 3. Judge 执行一次纯粹的推理
-        # 注意：这里调用的是 judge._think() 而不是 judge.chat()
-        # 因为我们不需要启动 Judge 的状态机，只需要它的 LLM 解析结果
-        # 判断_think()是否支持传入target_agent_name参数
-        if hasattr(judge, '_think'):
-            if not hasattr(judge._think, '__call__'):
-                raise ValueError("JudgeAgent._think 方法必须是可调用的")
-        
-        review_resp: AgentResponse = await judge._think(target_agent_name=self.agent.name)
-        
+        self.response = await self.agent._think()
         # 4. 根据 Judge 的 ActionType.REVIEW 结果决定 Worker 的去向
-        review_data = review_resp.validate_params() # 拿到 ReviewParams 对象
+        review_data = self.response.validate_params() # 拿到 ReviewParams 对象
 
         if review_data.is_passed:
-            self.agent.context_manager.add_tool_result(
-                agent_name=judge.name,
-                tool_name="review",
-                result=f"评审通过,原因：{review_data.reason}",
-                receivers=[self.agent.name]
+            data = ExecutionResultData(
+                observation=f"评审通过,原因：{review_data.reason}",
+                action_type=ActionType.REVIEW,
             )
-            return StateTransition(state=AgentState.COMPLETED)
+            # self.agent.context_manager.add_tool_result(
+            #     agent_name=self.agent.name,
+            #     tool_name="review", 
+            #     result=f"评审通过,原因：{review_data.reason}",
+            #     receivers=[self.agent.name]
+            # )
+            return StateTransition(state=AgentState.COMPLETED, data=data)
         else:
-            self.agent.context_manager.add_tool_result(
-                agent_name=judge.name,
-                tool_name="review",
-                result=f"评审打回,原因：{review_data.reason}",
-                receivers=[self.agent.name]
+            data = ExecutionResultData(
+                observation=f"评审打回,原因：{review_data.reason}",
+                action_type=ActionType.REVIEW,
             )
-            return StateTransition(state=AgentState.THINKING)
-
-
-    def get_response(self) -> Optional[AgentResponse]:
-        return self.response
+            # self.agent.context_manager.add_tool_result(
+            #     agent_name=self.agent.name,
+            #     tool_name="review",
+            #     result=f"评审打回,原因：{review_data.reason}",
+            #     receivers=[self.agent.name]
+            # )
+            return StateTransition(state=AgentState.COMPLETED, data=data)
     
     def can_transition_to(self, new_state: AgentState, data: Optional[StateData] = None) -> bool:
         return new_state in [
@@ -327,11 +314,11 @@ class WorkerStateMachine(BaseStateMachine):
         }
         self._current_state = self._states[AgentState.IDLE]
 
-    def get_judge_agent(self) -> BaseAgent:
-        if hasattr(self.agent, 'judge_agent'):
-            return self.agent.judge_agent
-        else:
-            return None
+    # def get_judge_agent(self) -> BaseAgent:
+    #     if hasattr(self.agent, 'judge_agent'):
+    #         return self.agent.judge_agent
+    #     else:
+    #         return None
 
 class JudgeStateMachine(BaseStateMachine):
     """
@@ -347,5 +334,7 @@ class JudgeStateMachine(BaseStateMachine):
         self._states = {
             AgentState.IDLE: IdleState(self),
             AgentState.THINKING: JudgeState(self),
+            AgentState.COMPLETED: CompletedState(self),
+            AgentState.ERROR: ErrorState(self)
         }
         self._current_state = self._states[AgentState.IDLE]

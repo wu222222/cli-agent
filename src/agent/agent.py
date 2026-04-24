@@ -28,7 +28,6 @@ class WorkerAgent(BaseAgent):
         tool_registry: Optional[ToolRegistry] = None,
         judge_agent: Optional["JudgeAgent"] = None,
         ):
-        self.judge_agent = judge_agent
         # 再调用父类的__init__
         super().__init__(name, llm_client, context_manager,prompt_manager, tool_registry)
         
@@ -39,6 +38,11 @@ class WorkerAgent(BaseAgent):
 
     def _create_state_machine(self) -> BaseStateMachine:
         return WorkerStateMachine()
+
+    def _prepare_context(self,input:str = None) -> None:
+        """上下文控制流"""
+        if input:
+            self.context_manager.add_user_message(self.name,input, receivers=[self.name])
 
     def _parse_action(self, response_text: str) -> Optional[LLMOutput]:
         """解析 LLM 响应并返回结构化的 LLMOutput 对象"""
@@ -108,15 +112,6 @@ class WorkerAgent(BaseAgent):
             raise
 
 
-
-    async def _execute_action(self, action_type: ActionType, action_params: Dict[str, Any]) -> str:
-        """执行action"""
-        logger.info(f"执行action: {action_type}, 参数: {action_params}")
-        # 通过工具注册表执行工具
-        result = await self.tools.execute_tool(action_type.value, action_params)
-        logger.info(f"工具执行结果: {result}")
-        return result
-
 class JudgeAgent(BaseAgent):
     """评审代理，负责检查 Worker 的任务完成质量"""
     
@@ -164,21 +159,46 @@ class JudgeAgent(BaseAgent):
             logger.warning(f"JSON 解析或结构校验失败: {e}")
             return None
 
-    async def _think(self,target_agent_name: str) -> AgentResponse:
-        # Judge 会看到 Worker 的所有操作记录
-        messages = [self.context_manager.get_system_format_prompt(self.name)]
-        messages.extend(self.context_manager.get_agent_messages(agent_name=target_agent_name,include_system_prompt=False))
-        
+    def _prepare_context(self, input: Message = None) -> None:
+        """接受 Worker 的操作记录，添加到上下文管理器"""
+        if isinstance(input, Message):
+            self.context_manager.add_assistant_message(input.sender, input.content, input.receivers)
+        else:
+            logger.warning(f"JudgeAgent 接收的输入不是 Message 类型: {input}")
+
+    async def run(self,input:Message = None) -> str:
+        """通用的 ReAct 循环调度逻辑"""
+        self._prepare_context(input)
+        # 统一从起始状态开始（假设子类状态机都有初始状态）
+        self.state_machine.transition(AgentState.THINKING)
+
+        try:
+            for iteration in range(self.max_iterations):
+                transition = await self.state_machine.execute()
+                next_state = transition.state
+                data = transition.data or {}
+
+                if not self.state_machine.transition(next_state, data):
+                    return f"[{self.name}] 状态转换错误"
+
+                if self.state_machine.is_in_state(AgentState.COMPLETED):
+                    return data
+                
+                if self.state_machine.is_in_state(AgentState.ERROR):
+                    return f"[{self.name}] 执行出错"
+
+            return "达到最大迭代次数"
+        except Exception as e:
+            self.state_machine.transition(AgentState.ERROR, data=ErrorData(error_message=str(e)))
+            return f"系统崩溃: {str(e)}"
+
+    async def _think(self) -> AgentResponse:
+        messages = self.context_manager.get_agent_messages(agent_name=self.name,include_system_prompt=True)
         # return None
         response_text = await self.llm_client.achat(messages)
         
         # 使用我们之前写好的通用解析逻辑
         llm_output = self._parse_action(response_text)
-
-        # debug
-        # logger.debug(f"JudgeAgent 思考后，response_text: {response_text}")
-
-
 
         if not llm_output:
                 # 解析失败的兜底逻辑

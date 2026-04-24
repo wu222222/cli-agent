@@ -2,12 +2,16 @@ from typing import Dict, Any, Optional, Type, NamedTuple
 from dataclasses import dataclass
 from enum import Enum
 from abc import ABC, abstractmethod
+
+from src.logger import get_logger
 from src.agent.context import ContextManager
 from src.agent.prompt import PromptManager
 from src.agent.tools import ToolRegistry
-
 from src.agent.types import *
 from src.llm import LLMClient, LLMConfig
+
+logger = get_logger(__name__)
+
 
 class BaseAgent(ABC):
     def __init__(
@@ -42,12 +46,14 @@ class BaseAgent(ABC):
         """子类需实现：返回该 Agent 专用的状态机"""
         pass
 
-    async def chat(self, message: str) -> str:
-        return await self.run(message)
+    @abstractmethod
+    def _prepare_context(self,input:str | dict | Message = None) -> None:
+        """上下文控制流"""
+        pass
 
-    async def run(self, user_input: str) -> str:
+    async def run(self,input:str | dict | Message = None) -> str:
         """通用的 ReAct 循环调度逻辑"""
-        self.context_manager.add_user_message(self.name,user_input, receivers=[self.name])
+        self._prepare_context(input)
         # 统一从起始状态开始（假设子类状态机都有初始状态）
         self.state_machine.transition(AgentState.THINKING)
 
@@ -76,10 +82,13 @@ class BaseAgent(ABC):
         """具体的 LLM 调用和解析逻辑"""
         pass
 
-    @abstractmethod
     async def _execute_action(self, action_type: ActionType, action_params: Dict[str, Any]) -> str:
-        """执行具体的动作，并返回结果"""
-        pass
+        """执行action"""
+        logger.info(f"执行action: {action_type}, 参数: {action_params}")
+        # 通过工具注册表执行工具
+        result = await self.tools.execute_tool(action_type.value, action_params)
+        logger.info(f"工具执行结果: {result}")
+        return result
 
     def _get_final_result(self) -> str:
         """默认从 context 拿结果，子类可重写"""

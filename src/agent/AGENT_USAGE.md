@@ -16,3 +16,6 @@ state状态转移的信息应该保存在哪？
 - 同时保存在 state_machine 和 context 中。
 
 ContextManager 在管理多个Agent时，共享context。
+
+我先把worker agent 和 judge agent 分离。
+我想建立一个group , group member 包含 worker agent 和 judge agent。他们通过通信协议，传递消息。

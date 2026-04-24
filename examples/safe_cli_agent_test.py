@@ -8,7 +8,7 @@ import logging
 
 from src.logger import get_logger, setup_logger
 from src.llm import LLMClient
-from src.agent import WorkerAgent, JudgeAgent,ContextManager,PromptManager,ToolRegistry
+from src.agent import WorkerAgent, JudgeAgent,ContextManager,Message,PromptManager,ToolRegistry,Tool
 from src.executor import DockerExecutor
 
 # 设置日志 - 使用结构化日志，减少噪音
@@ -20,7 +20,7 @@ setup_logger(
 logger = get_logger(__name__)
 
 
-def setup_tools(agent: WorkerAgent, executor: DockerExecutor):
+def setup_tools(workeragent: WorkerAgent, judgeagent: JudgeAgent, executor: DockerExecutor):
     """为Agent注册工具处理函数"""
     # 注册 execute_command 工具的处理函数
     def execute_command_handler(command) -> str:
@@ -41,13 +41,41 @@ def setup_tools(agent: WorkerAgent, executor: DockerExecutor):
         except Exception as e:
             return f"执行命令失败: {str(e)}"
 
+    # 注册 judge 工具的处理函数
+    async def call_judge_handler(final_answer: str, evidence_summary: str = None) -> str:
+        """
+        参数名必须匹配 CallJudgeParams 里的字段名
+        """
+        history = workeragent.context_manager.get_recent_messages(workeragent.name,include_system_prompt=False)
+        content = f"""
+            'history': {history}
+            'answer': {final_answer}
+            'evidence': {evidence_summary}
+            """ 
+
+        payload = ContextManager.create_assistant_message(
+            sender=workeragent.name,
+            content=content,
+            receivers=[judgeagent.name]
+        )
+
+        result = await judgeagent.run(payload)
+        
+        # 将 Judge 的 ReviewParams 结果转化为字符串返回给 Worker 的 Context
+        return f"评审结果: {result}"
+
     # 获取工具并设置处理函数
-    execute_command_tool = agent.tools.get_tool("execute_command")
+    execute_command_tool = workeragent.tools.get_tool("execute_command")
     if execute_command_tool:
         execute_command_tool.handler = execute_command_handler
-    
+    else:
+        logger.error("execute_command 工具未注册")
 
-
+    judge_tool = workeragent.tools.get_tool("call_judge")
+    if judge_tool:
+        judge_tool.handler = call_judge_handler
+    else:
+        logger.error("call_judge 工具未注册")
 
 async def test_safe_cli_agent():
     """测试 Safe-CLI-Agent 完整工作流"""
@@ -72,11 +100,11 @@ async def test_safe_cli_agent():
         tools = ToolRegistry()
         
         judge_agent = JudgeAgent(llm_client=llm_client,context_manager=context_manager,prompt_manager=prompt_manager,tool_registry=tools)
-        agent = WorkerAgent(llm_client=llm_client,context_manager=context_manager,prompt_manager=prompt_manager,tool_registry=tools,judge_agent=judge_agent)
+        agent = WorkerAgent(llm_client=llm_client,context_manager=context_manager,prompt_manager=prompt_manager,tool_registry=tools)
         agent.max_iterations = 25
 
         # 4. 设置工具处理函数
-        setup_tools(agent, executor)
+        setup_tools(agent, judge_agent, executor)
 
         # 5. 测试示例
         test_cases = [
@@ -89,7 +117,7 @@ async def test_safe_cli_agent():
             print("=" * 60)
             
             # 运行 Agent
-            response = await agent.chat(test_case)
+            response = await agent.run(test_case)
             
             print("\n" + "=" * 60)
             print("🤖 Agent 响应")
