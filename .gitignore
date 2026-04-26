@@ -1,5 +1,7 @@
 __pycache__/
 
 workspace/
+logs/
+knowledge_base/
 
 .env

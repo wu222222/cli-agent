@@ -33,12 +33,13 @@ class Tool(BaseModel):
 
 
 class ToolRegistry:
-    def __init__(self):
+    def __init__(self,kb_search: bool = False):
         self._tools: Dict[str, Tool] = {}
+        self.kb_search = kb_search
         # 注册默认工具
-        self._register_default_tools()
+        self._register_default_tools(kb_search)
 
-    def _register_default_tools(self) -> None:
+    def _register_default_tools(self,kb_search: bool = False) -> None:
         """
         在这里只定义工具的说明文档。
         具体的 handler（如 docker 执行逻辑）建议在外部（如在 Worker 初始化时）注入。
@@ -70,6 +71,26 @@ class ToolRegistry:
             },
             required_params=["final_answer"]
         ))
+        
+        if kb_search:
+            self.register(Tool(
+                name=ActionType.QUERY_KNOWLEDGE.value,
+                description=(
+                    "Search and query the local knowledge base for CLI best practices, "
+                    "troubleshooting steps, and command syntax. The knowledge base is "
+                    "stored in '/knowledge_base' and is read-only. "
+                    "Use standard commands like 'ls -R', 'grep', 'find', or 'cat' to "
+                    "explore files and extract information. "
+                    "Example: 'grep -r \"Permission denied\" /knowledge_base' to find solutions."
+                ),
+                parameters={
+                    "command": {
+                        "type": "string",
+                        "description": "The shell command to execute inside the knowledge base directory."
+                    }
+                },
+                required_params=["command"]
+            ))
 
     def register(self, tool: Tool) -> None:
         self._tools[tool.name] = tool

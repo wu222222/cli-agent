@@ -1,3 +1,3 @@
-from .docker import DockerExecutor
+from .docker import DockerExecutor,DockerConfig
 
-__all__ = ["DockerExecutor"]
+__all__ = ["DockerExecutor","DockerConfig"]

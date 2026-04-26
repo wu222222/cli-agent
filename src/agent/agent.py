@@ -228,3 +228,27 @@ class JudgeAgent(BaseAgent):
         agent_resp.validate_params()
 
         return agent_resp
+
+class CuratorAgent(BaseAgent):
+    """CuratorAgent，负责管理知识库"""
+    def __init__(
+        self,
+        name: str = "CuratorAgent",
+        llm_client: Optional[LLMClient] = None,
+        context_manager: Optional[ContextManager] = None,
+        prompt_manager: Optional[PromptManager] = None,
+        tool_registry: Optional[ToolRegistry] = None,
+        ):
+        # 再调用父类的__init__
+        super().__init__(name, llm_client, context_manager,prompt_manager, tool_registry)
+    
+    def _setup_system_prompt(self) -> None:
+        system_prompt = self.prompt_manager._build_judge_prompt()
+        self.context_manager.set_system_prompt(self.name,system_prompt)
+
+    def _create_state_machine(self) -> BaseStateMachine:
+        return JudgeStateMachine()
+    
+    def _execute_action(self, action_type: ActionType, action_params: Dict[str, Any]) -> str:
+        return super()._execute_action(action_type, action_params)
+

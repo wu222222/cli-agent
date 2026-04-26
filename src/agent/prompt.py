@@ -5,7 +5,8 @@ from .types import ActionType, ACTION_SCHEMA_MAP
 class PromptManager:
     """Prompt管理器，支持动态 Schema 生成和多角色切换"""
 
-    def __init__(self):
+    def __init__(self, kb_search: bool = False):
+        self.kb_search = kb_search
         # 基础原则（所有 Agent 通用）
         self.base_principles = [
             "1. 所有响应必须使用统一的 JSON 格式。",
@@ -63,6 +64,9 @@ JSON 格式规范：
         # 定义 Worker 允许使用的动作
         allowed = [ActionType.EXECUTE_COMMAND, ActionType.STOP, ActionType.CALL_JUDGE]
         
+        if self.kb_search:
+            allowed.append(ActionType.QUERY_KNOWLEDGE)
+        
         prompt = f"""你是一个智能命令行助手，具备自我推理和工具调用能力。
 
         ## 核心原则
@@ -103,6 +107,7 @@ JSON 格式规范：
 3. 任务闭环与严谨性（Closure & Rigor）：
    - **全量覆盖**：最终结论必须逐一响应用户的所有指令维度，严禁遗漏。
    - **零假设原则**：任何未经过原始证据（Observation）直接支撑的推论，无论听起来多么合理，均视为“逻辑幻觉”，必须直接打回。
+   - **评估 Worker 的 Shell 语法健壮性**：如果 Worker 使用了可能产生歧义的写法，即便拿到了结果，也要在建议（suggestions）中指出更标准的写法。
 
 ### 评审准则
 - **不通过（Fail）**：采用批量操作导致边界模糊、面对矛盾数据未执行二次验证、在证据链断裂处使用主观推断。

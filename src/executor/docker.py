@@ -11,14 +11,29 @@ logger = get_logger(__name__)
 
 @dataclass
 class DockerConfig:
+    # 基础镜像配置
     image: str = "alpine:latest"
     container_name: Optional[str] = None
     network: str = "none"
-    cpu_quota: int = 100000  # 100% CPU
+    cpu_quota: int = 100000 
     memory_limit: str = "512m"
+    timeout: int = 30
+
+    # 工作空间配置 (Workspace)
+    use_host_workspace: bool = True
     workspace_name: str = "workspace"
     workspace: str = os.path.abspath(f"./{workspace_name}")
-    timeout: int = 30
+    workspace_mode: str = "rw"  # 新增：控制工作区的读写权限 ("rw" 或 "ro")
+
+    # 知识库配置 (Knowledge Base)
+    use_knowledge_base: bool = True
+    kb_path: str = os.path.abspath("./knowledge_base")
+    kb_container_path: str = "/knowledge_base"
+    kb_mode: str = "ro"  # 新增：控制知识库的读写权限 ("rw" 或 "ro")
+
+    # 运行时目录配置
+    # 如果不指定，则使用镜像默认工作目录；如果指定，启动时会切换到这里
+    working_dir: Optional[str] = None
 
 
 class DockerExecutor:
@@ -31,7 +46,7 @@ class DockerExecutor:
     def _initialize_docker(self) -> None:
         try:
             self.client = docker.from_env()
-            logger.info("Docker 客户端初始化成功")
+            logger.info(f"Docker 客户端初始化成功, image: {self.config.image}")
         except docker.errors.DockerException as e:
             logger.error(f"Docker 初始化失败: {e}")
             logger.warning("Docker 守护进程未启动或无法连接")
@@ -46,30 +61,50 @@ class DockerExecutor:
             return False
 
         try:
-            # 确保工作目录存在
-            os.makedirs(self.config.workspace, exist_ok=True)
+            # 1. 预清理同名容器（防止调试时频繁报错）
+            if self.config.container_name:
+                try:
+                    old_cont = self.client.containers.get(self.config.container_name)
+                    logger.info(f"清理旧容器: {self.config.container_name}")
+                    old_cont.remove(force=True)
+                except docker.errors.NotFound:
+                    pass
 
-            # 创建容器 - 使用 tail -f /dev/null 保持容器运行，并设置工作目录
+            # 2. 决定是否挂载
+            volumes = {}
+            # 1. 处理工作空间挂载
+            if self.config.use_host_workspace:
+                os.makedirs(self.config.workspace, exist_ok=True)
+                volumes[self.config.workspace] = {
+                    "bind": f"/{self.config.workspace_name}",
+                    "mode": self.config.workspace_mode # 使用配置的 mode
+                }
+            
+            # 2. 处理知识库挂载
+            if self.config.use_knowledge_base:
+                os.makedirs(self.config.kb_path, exist_ok=True)
+                volumes[self.config.kb_path] = {
+                    "bind": self.config.kb_container_path,
+                    "mode": self.config.kb_mode # 使用配置的 mode
+                }
+
+            # 3. 启动容器
             self.container = self.client.containers.run(
                 self.config.image,
                 name=self.config.container_name,
                 detach=True,
                 tty=True,
+                stdin_open=True,
                 network=self.config.network,
                 cpu_quota=self.config.cpu_quota,
                 mem_limit=self.config.memory_limit,
-                volumes={
-                    self.config.workspace: {
-                        "bind": f"/{self.config.workspace_name}",
-                        "mode": "rw"
-                    }
-                },
-                working_dir=f"/{self.config.workspace_name}",  # 设置工作目录
-                command="sh -c 'tail -f /dev/null'"  # 保持容器运行
+                volumes=volumes,
+                # 使用配置的 working_dir，如果为 None 则由 Docker 镜像决定
+                working_dir=self.config.working_dir,
+                command="sh -c 'tail -f /dev/null'"
             )
-            logger.info(f"可以使用以下命令进入容器: docker exec -it {self.container.name} sh")
-            logger.info(f"容器启动成功: {self.container.id}")
-            logger.info(f"容器名称: {self.container.name}")
+            
+            logger.info(f"容器启动成功: {self.container.name} (Image: {self.config.image})")
             return True
         except Exception as e:
             logger.error(f"容器启动失败: {e}")
@@ -91,10 +126,10 @@ class DockerExecutor:
             exit_code, output = self.container.exec_run(
                 ["sh", "-c", command],
                 detach=False,
-                tty=True,
+                tty=False,
                 stdout=True,
                 stderr=True,
-                user="nobody"  # 使用非root用户
+                # user="nobody"  # 使用非root用户
             )
 
             # 处理输出

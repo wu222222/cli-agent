@@ -29,7 +29,7 @@ class IdleState(State):
         return new_state == AgentState.THINKING
 
 
-class ThinkingState(State):
+class WorkerThinkingState(State):
     """思考状态"""
     
     def __init__(self, state_machine: BaseStateMachine):
@@ -76,7 +76,13 @@ class ThinkingState(State):
                     state=AgentState.EXECUTING, 
                     data=ThinkingToExecutingData(response=self.response)
                 )
-
+            
+            case ActionType.QUERY_KNOWLEDGE:
+                return StateTransition(
+                    state=AgentState.EXECUTING, 
+                    data=ThinkingToExecutingData(response=self.response)
+                )
+            
             case _:
                 # 3. 处理执行逻辑 (通用动作)
                 return StateTransition(
@@ -89,7 +95,6 @@ class ThinkingState(State):
             AgentState.WAITING_CONFIRMATION,
             AgentState.EXECUTING,
             AgentState.ERROR,
-            AgentState.JUDGE
         ]
 
 
@@ -167,7 +172,8 @@ class WaitingConfirmationState(State):
         
         if self.data and self.data.requires_confirmation:
             confirmation_prompt = self.data.confirmation_prompt 
-            confirmed = self.confirmation_handler(confirmation_prompt)
+            thought = self.data.response.thought
+            confirmed = self.confirmation_handler(confirmation_prompt,thought)
             if confirmed:
                 return StateTransition(state=AgentState.EXECUTING, data=self.data)
             else:
@@ -183,10 +189,12 @@ class WaitingConfirmationState(State):
             return True
         return False
 
-    def confirmation_handler(self, prompt: str) -> bool:
+    def confirmation_handler(self, prompt: str,thought: str = None) -> bool:
         """人机确认处理器"""
         print("\n" + "=" * 60)
         print("🔐 安全确认")
+        if thought:
+            print(f"思考: {thought}")
         print("=" * 60)
         print(f"⚠️  {prompt}")
         print("=" * 60)
@@ -249,7 +257,7 @@ class JudgeState(State):
 
     def __init__(self, state_machine: BaseStateMachine):
         super().__init__(state_machine)
-        self.state = AgentState.JUDGE
+        self.state = AgentState.THINKING
         self.response:Optional[AgentResponse] = None
     
     def on_enter(self, data: Optional[StateData] = None):
@@ -295,6 +303,57 @@ class JudgeState(State):
             AgentState.ERROR
         ]
 
+class CuratorThinkingState(State):
+    """知识整理者思考状态"""
+    
+    def __init__(self, data: Optional[StateData] = None):
+        pass
+    
+    def on_exit(self, data: Optional[StateData] = None):
+        pass
+    
+    async def execute(self, data: Optional[StateData] = None) -> StateTransition:
+        """执行知识整理者思考状态逻辑"""
+        self.response = await self.agent._think()
+        
+        logger.debug(f"状态{self.state},response:{self.response}")
+
+        # 根据响应决定下一个状态
+        match self.response.action_type:
+            case ActionType.STOP:
+                # 先进入判断状态，再进入完成状态
+                answer = self.response.action_params.get("answer", self.response.content)
+                self.agent.context_manager.add_assistant_message(self.agent.name,self.response.content,[self.agent.name])
+                self.agent.context_manager.set_final_answer(answer)
+                return StateTransition(state=AgentState.COMPLETED)
+
+            case ActionType.EXECUTE_COMMAND:
+                needs_confirm = True
+                prompt = f"是否允许执行: {self.response.action_params.get('command')}?"
+                out_data = ThinkingToExecutingData(
+                    response=self.response,
+                    requires_confirmation=needs_confirm,
+                    confirmation_prompt=prompt
+                )
+                return StateTransition(
+                    state=AgentState.WAITING_CONFIRMATION, 
+                    data=out_data
+                )
+            
+            case _:
+                # 3. 处理执行逻辑 (通用动作)
+                return StateTransition(
+                    state=AgentState.EXECUTING, 
+                    data= ThinkingToExecutingData(response=self.response)
+                )
+    
+    def can_transition_to(self, new_state: AgentState, data: Optional[StateData] = None) -> bool:
+        return new_state in [
+            AgentState.COMPLETED,
+            AgentState.ERROR,
+            AgentState.WAITING_CONFIRMATION
+        ]
+
 
 class WorkerStateMachine(BaseStateMachine):
     def __init__(self):
@@ -305,10 +364,9 @@ class WorkerStateMachine(BaseStateMachine):
         # 包含执行和确认状态
         self._states = {
             AgentState.IDLE: IdleState(self),
-            AgentState.THINKING: ThinkingState(self),
+            AgentState.THINKING: WorkerThinkingState(self),
             AgentState.EXECUTING: ExecutingState(self),
             AgentState.WAITING_CONFIRMATION: WaitingConfirmationState(self),
-            AgentState.JUDGE: JudgeState(self),
             AgentState.COMPLETED: CompletedState(self),
             AgentState.ERROR: ErrorState(self)
         }
@@ -334,6 +392,26 @@ class JudgeStateMachine(BaseStateMachine):
         self._states = {
             AgentState.IDLE: IdleState(self),
             AgentState.THINKING: JudgeState(self),
+            AgentState.COMPLETED: CompletedState(self),
+            AgentState.ERROR: ErrorState(self)
+        }
+        self._current_state = self._states[AgentState.IDLE]
+
+class CuratorStateMachine(BaseStateMachine):
+    """
+    知识整理者状态机
+    """
+    def __init__(self):
+        super().__init__(AgentState.IDLE)
+        self._setup_states()
+
+    def _setup_states(self):
+        self._states = {
+            AgentState.IDLE: IdleState(self),
+            # THINKING 阶段：分析历史，提取知识点
+            AgentState.THINKING: CuratorThinkingState(self), 
+            # EXECUTING 阶段：调用本地工具进行文件 IO 操作
+            AgentState.EXECUTING: ExecutingState(self), 
             AgentState.COMPLETED: CompletedState(self),
             AgentState.ERROR: ErrorState(self)
         }

@@ -1,6 +1,7 @@
 import logging
 import os
 import json
+from datetime import datetime
 from typing import Optional, Dict, Any
 
 DEFAULT_LOG_LEVEL = logging.INFO
@@ -88,10 +89,20 @@ def setup_logger(
 
     # 文件处理器
     if log_file:
-        os.makedirs(os.path.dirname(log_file), exist_ok=True)
+        # 生成日期时间戳
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        # 提取文件路径的目录、文件名和扩展名
+        dir_path = os.path.dirname(log_file)
+        base_name = os.path.basename(log_file)
+        name_without_ext, ext = os.path.splitext(base_name)
+        # 构建新的文件名：原文件名 + 时间戳 + 扩展名
+        new_base_name = f"{name_without_ext}_{timestamp}{ext}"
+        new_log_file = os.path.join(dir_path, new_base_name)
+        
+        os.makedirs(os.path.dirname(new_log_file), exist_ok=True)
         # 文件日志使用非彩色格式
         file_formatter = JsonFormatter(format_string) if use_json else logging.Formatter(format_string)
-        file_handler = logging.FileHandler(log_file, encoding="utf-8")
+        file_handler = logging.FileHandler(new_log_file, encoding="utf-8")
         file_handler.setLevel(level)
         file_handler.setFormatter(file_formatter)
         root_logger.addHandler(file_handler)

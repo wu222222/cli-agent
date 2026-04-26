@@ -8,9 +8,14 @@ class ActionType(Enum):
     EXECUTE_COMMAND = "execute_command"
     STOP = "stop"
     CALL_JUDGE = "call_judge"
-    
-    # 未来可以轻松扩展 Judge 专用的动作
+    # 知识库查询
+    QUERY_KNOWLEDGE = "query_knowledge"
+
+    # Judge 专用的动作
     REVIEW = "review"
+
+    # Curator 专用的动作
+    CURATE = "curate"
 
 class AgentState(Enum):
     IDLE = "idle"
@@ -19,8 +24,7 @@ class AgentState(Enum):
     WAITING_CONFIRMATION = "waiting_confirmation"
     COMPLETED = "completed"
     ERROR = "error"
-    JUDGE = "judge"
-    # WAITING_JUDGE = "waiting_judge"
+
 
 class LLMAction(BaseModel):
     """对应 Prompt 中的 action 部分"""
@@ -141,3 +145,9 @@ class StateTrace(BaseModel):
     from_state: str
     to_state: str
     data: Optional[StateData] = None
+
+@dataclass
+class TaskPolicy:
+    allow_kb_search: bool = True   # 是否允许 Worker 使用 query_knowledge 工具
+    allow_curation: bool = True    # 任务结束后是否启动 Curator 总结
+    read_only_kb: bool = True      # 强制知识库对 Worker 只读（默认应为 True）
