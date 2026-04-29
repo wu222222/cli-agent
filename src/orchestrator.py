@@ -71,8 +71,21 @@ class AgentOrchestrator:
             logger.error(f"任务执行失败: {e}")
             return f"任务执行失败: {e}"
 
+    def ensure_kb_structure(self, base_path: str = "./knowledge_base"):
+        sub_dirs = ["linux", "security", "tools", "troubleshooting"]
+        for d in sub_dirs:
+            path = os.path.join(base_path, d)
+            if not os.path.exists(path):
+                os.makedirs(path)
+                # 自动生成一个简单的 README 说明
+                with open(os.path.join(path, "info.txt"), "w") as f:
+                    f.write(f"This directory is for {d} related knowledge.")
+
     def _get_default_curator_config(self) -> DockerConfig:
         """默认的知识库维护环境"""
+        if not os.path.exists("./knowledge_base"):
+            self.ensure_kb_structure()
+
         return DockerConfig(
             image="alpine:latest",
             container_name="curator_sandbox",

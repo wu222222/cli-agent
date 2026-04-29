@@ -1,0 +1,13 @@
+# 核心 Agent 框架
+openai>=2.31.0
+pydantic>=2.12.5
+python-dotenv>=1.2.2
+
+# 执行器与环境
+docker>=7.1.0
+
+# UI 与终端美化
+rich>=14.3.4
+
+# 异步与网络
+httpx>=0.28.1

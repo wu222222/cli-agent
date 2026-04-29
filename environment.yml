@@ -1,11 +1,13 @@
 name: safe-cli-agent
 channels:
+  - conda-forge
   - defaults
 dependencies:
   - python=3.10
-  - mamba
+  - pip
   - pip:
-    - openai
-    - docker
-    - python-dotenv
-    - rich
+      - openai>=2.31.0
+      - docker>=7.1.0
+      - pydantic>=2.12.5
+      - python-dotenv>=1.2.2
+      - rich>=14.3.4
