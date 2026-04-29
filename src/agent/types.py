@@ -146,8 +146,7 @@ class StateTrace(BaseModel):
     to_state: str
     data: Optional[StateData] = None
 
-@dataclass
-class TaskPolicy:
+class TaskPolicy(BaseModel):
     allow_kb_search: bool = True   # 是否允许 Worker 使用 query_knowledge 工具
     allow_curation: bool = True    # 任务结束后是否启动 Curator 总结
     read_only_kb: bool = True      # 强制知识库对 Worker 只读（默认应为 True）

@@ -34,7 +34,7 @@ class BaseAgent(ABC):
         self.state_machine = self._create_state_machine()
         self.state_machine.set_agent(self)
         
-        self.max_iterations = 10
+        self.max_iterations = 15
 
     @abstractmethod
     def _setup_system_prompt(self) -> None:

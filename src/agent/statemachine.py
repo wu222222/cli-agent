@@ -306,9 +306,14 @@ class JudgeState(State):
 class CuratorThinkingState(State):
     """知识整理者思考状态"""
     
-    def __init__(self, data: Optional[StateData] = None):
-        pass
+    def __init__(self, state_machine: BaseStateMachine):
+        super().__init__(state_machine)
+        self.state = AgentState.THINKING
+        self.response:Optional[AgentResponse] = None
     
+    def on_enter(self, data: Optional[StateData] = None):
+        pass
+
     def on_exit(self, data: Optional[StateData] = None):
         pass
     
@@ -341,10 +346,10 @@ class CuratorThinkingState(State):
                 )
             
             case _:
-                # 3. 处理执行逻辑 (通用动作)
+                # 3. 跳转至Error状态
                 return StateTransition(
-                    state=AgentState.EXECUTING, 
-                    data= ThinkingToExecutingData(response=self.response)
+                    state=AgentState.ERROR, 
+                    data= ErrorData(response=self.response)
                 )
     
     def can_transition_to(self, new_state: AgentState, data: Optional[StateData] = None) -> bool:
@@ -411,6 +416,7 @@ class CuratorStateMachine(BaseStateMachine):
             # THINKING 阶段：分析历史，提取知识点
             AgentState.THINKING: CuratorThinkingState(self), 
             # EXECUTING 阶段：调用本地工具进行文件 IO 操作
+            AgentState.WAITING_CONFIRMATION: WaitingConfirmationState(self),
             AgentState.EXECUTING: ExecutingState(self), 
             AgentState.COMPLETED: CompletedState(self),
             AgentState.ERROR: ErrorState(self)

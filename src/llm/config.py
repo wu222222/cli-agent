@@ -11,7 +11,7 @@ class LLMConfig:
     api_key: Optional[str] = field(default_factory=lambda: os.getenv("DASHSCOPE_API_KEY", None))
     base_url: str = field(default_factory=lambda: os.getenv("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"))
     model: str = field(default_factory=lambda: os.getenv("LLM_MODEL", None))
-    temperature: float = 0.7
+    temperature: float = 0.3
     max_tokens: int = 2048
     timeout: int = 60
 

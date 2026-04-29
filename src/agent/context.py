@@ -111,6 +111,25 @@ class ContextManager:
                 
         return formatted_messages
 
+    def get_all_messages(self,agent_name: str = None, include_system_prompt: bool = True) -> List[Dict[str, Any]]:
+        """获取所有消息"""
+        formatted_messages = []
+
+        if include_system_prompt and agent_name in self.system_prompts:
+            formatted_messages.append({
+                "role": "system",
+                "content": self.system_prompts[agent_name]
+            })
+
+        for msg in self.messages:
+            item = {"role": msg.role, "content": msg.content}
+            if msg.role == "tool":
+                item["tool_call_id"] = msg.tool_call_id
+                item["name"] = msg.tool_name
+            formatted_messages.append(item)
+            
+        return formatted_messages
+
     def clear(self) -> None:
         """清空上下文"""
         self.messages = []

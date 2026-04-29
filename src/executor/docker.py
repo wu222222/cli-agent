@@ -74,7 +74,11 @@ class DockerExecutor:
             volumes = {}
             # 1. 处理工作空间挂载
             if self.config.use_host_workspace:
-                os.makedirs(self.config.workspace, exist_ok=True)
+                #检测工作空间是否存在，不存在则报错
+                if not os.path.exists(self.config.workspace):
+                    logger.error(f"工作空间 {self.config.workspace} 不存在")
+                    return False
+                # os.makedirs(self.config.workspace, exist_ok=True)
                 volumes[self.config.workspace] = {
                     "bind": f"/{self.config.workspace_name}",
                     "mode": self.config.workspace_mode # 使用配置的 mode
@@ -82,7 +86,11 @@ class DockerExecutor:
             
             # 2. 处理知识库挂载
             if self.config.use_knowledge_base:
-                os.makedirs(self.config.kb_path, exist_ok=True)
+                #检测知识库是否存在，不存在则报错
+                if not os.path.exists(self.config.kb_path):
+                    logger.error(f"知识库 {self.config.kb_path} 不存在")
+                    return False
+                # os.makedirs(self.config.kb_path, exist_ok=True)
                 volumes[self.config.kb_path] = {
                     "bind": self.config.kb_container_path,
                     "mode": self.config.kb_mode # 使用配置的 mode
@@ -168,6 +176,15 @@ class DockerExecutor:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self.stop_container()
+
+    async def __aenter__(self) -> "DockerExecutor":
+        # 如果你的 start_container 是同步的，直接调用即可
+        # 如果追求完美，可以使用 asyncio.to_thread 运行它
+        self.start_container()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         self.stop_container()
 
     def close(self) -> None:

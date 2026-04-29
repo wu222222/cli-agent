@@ -6,6 +6,7 @@ from src.logger import get_logger, setup_logger
 from src.llm import LLMClient
 from src.agent import WorkerAgent,JudgeAgent,CuratorAgent,ContextManager,Message,PromptManager,ToolRegistry,Tool,TaskPolicy
 from src.executor import DockerExecutor,DockerConfig
+from src.orchestrator import AgentOrchestrator
 
 # 设置日志 - 使用结构化日志，减少噪音
 setup_logger(
@@ -109,7 +110,36 @@ def execute_curate(llm_client: LLMClient,context_manager: ContextManager, prompt
     curator_executor = DockerExecutor(curator_cfg)
     curator_executor.start_container()
     
+    def curator_execute_command_handler(command) -> str:
+        """执行命令的处理函数 (结构化增强版)"""
+        try:
+            logger.info(f"执行命令: {command}")
+            stdout, stderr, exit_code = curator_executor.execute_command(command)
+            
+            result = []
+            result.append(f"command: {command}\n")
+            if exit_code == 0:
+                result.append(f"exit_code: {exit_code}\n")
+                result.append(f"stdout:\n{stdout}\n")
+            else:
+                result.append(f"exit_code: {exit_code}\n")
+                result.append(f"stderr:\n{stderr}\n")
+            return "\n".join(result)
+        except Exception as e:
+            return f"执行命令失败: {str(e)}"
+    
+    # 注册 curator 工具的处理函数
+    curator_execute_command_tool = tools.get_tool("curator_execute_command")
+    if curator_execute_command_tool:
+        curator_execute_command_tool.handler = curator_execute_command_handler
+    else:
+        logger.error("curator_execute_command 工具未注册")
+
     curator = CuratorAgent(llm_client=llm_client,context_manager=context_manager,prompt_manager=prompt_manager,tool_registry=tools)
+
+    curator.run()
+
+    curator_executor.close_container()
 
 
 async def test_safe_cli_agent():
@@ -173,46 +203,73 @@ async def test_safe_cli_agent():
         print("测试完成，资源已清理")
         print("=" * 60)
 
+# async def test_agent_capability():
+#     task_policy = TaskPolicy(
+#         allow_kb_search=True,
+#         allow_curation=True,
+#         read_only_kb=True,
+#     )
+#     # 1. 启动靶场容器
+#     worker_cfg = DockerConfig(
+#         image="my_lab_image:latest",       # 靶场镜像
+#         container_name="worker_sandbox",
+#         workspace_name="challenge",        # 工作区设为 challenge
+#         kb_mode="ro",                      # 知识库必须只读！防止 Worker 篡改
+#         working_dir="/challenge"
+#     )
+
+#     executor = DockerExecutor(worker_cfg)
+    
+#    # 2. 初始化 LLM 客户端
+#     llm_client = LLMClient()
+
+#     # 3. 初始化 Agent
+#     context_manager = ContextManager()
+#     prompt_manager = PromptManager(kb_search=task_policy.allow_kb_search)
+#     tools = ToolRegistry(kb_search=task_policy.allow_kb_search)
+    
+#     judge_agent = JudgeAgent(llm_client=llm_client,context_manager=context_manager,prompt_manager=prompt_manager,tool_registry=tools)
+#     worker = WorkerAgent(llm_client=llm_client,context_manager=context_manager,prompt_manager=prompt_manager,tool_registry=tools)
+#     worker.max_iterations = 25
+    
+#     # 3. 注入工具逻辑（包含 call_judge_handler）
+#     setup_tools(worker, judge_agent, executor)
+    
+#     # 4. 下达任务
+#     task = f"找到隐藏在 /{workspace_name} 目录下的Flag (可能存在多个)。"
+#     result = await worker.run(task)
+    
+#     logger.info(f"最终判定结果: {result}")
+#     #输出历史信息
+#     logger.debug(worker.context_manager.format_history("detailed"))
+#     logger.debug(worker.context_manager.get_state_trace())
+
 async def test_agent_capability():
-    task_policy = TaskPolicy(
-        allow_kb_search=True,
+    policy = TaskPolicy(
+        allow_kb_search=False,
         allow_curation=True,
         read_only_kb=True,
     )
-    # 1. 启动靶场容器
+
     worker_cfg = DockerConfig(
         image="my_lab_image:latest",       # 靶场镜像
         container_name="worker_sandbox",
-        workspace_name="challenge",        # 工作区设为 challenge
-        kb_mode="ro",                      # 知识库必须只读！防止 Worker 篡改
-        working_dir="/challenge"
+        use_host_workspace=False,
+        use_knowledge_base=False,
     )
 
-    executor = DockerExecutor(worker_cfg)
-    
-   # 2. 初始化 LLM 客户端
     llm_client = LLMClient()
-
-    # 3. 初始化 Agent
     context_manager = ContextManager()
-    prompt_manager = PromptManager(kb_search=task_policy.allow_kb_search)
-    tools = ToolRegistry(kb_search=task_policy.allow_kb_search)
-    
-    judge_agent = JudgeAgent(llm_client=llm_client,context_manager=context_manager,prompt_manager=prompt_manager,tool_registry=tools)
-    worker = WorkerAgent(llm_client=llm_client,context_manager=context_manager,prompt_manager=prompt_manager,tool_registry=tools)
-    worker.max_iterations = 25
-    
-    # 3. 注入工具逻辑（包含 call_judge_handler）
-    setup_tools(worker, judge_agent, executor)
-    
-    # 4. 下达任务
-    task = f"找到隐藏在 /{workspace_name} 目录下的Flag (可能存在多个)。"
-    result = await worker.run(task)
-    
-    logger.info(f"最终判定结果: {result}")
+
+    orchestrator = AgentOrchestrator(policy, llm_client, context_manager)
+
+    task = "在 /challenge 目录下找到隐藏的Flag (可能存在多个)"
+    result = await orchestrator.run_mission(task, worker_cfg)
+    logger.info(f"Mission Outcome: {result}")
     #输出历史信息
-    logger.debug(worker.context_manager.format_history("detailed"))
-    logger.debug(worker.context_manager.get_state_trace())
+    logger.debug(context_manager.format_history("detailed"))
+    logger.debug(context_manager.get_state_trace())
+
 
 
 if __name__ == "__main__":
