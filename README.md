@@ -46,8 +46,8 @@
 1. **获取代码**
 
 ```bash
-git clone [https://github.com/your-username/safe-cli-agent.git](https://github.com/your-username/safe-cli-agent.git)
-cd safe-cli-agent
+git clone [https://github.com/wu222222/cli-agent.git](https://github.com/wu222222/cli-agent.git)
+cd cli-agent
 ```
 
 2. **环境配置(推荐使用conda/mamba)**
