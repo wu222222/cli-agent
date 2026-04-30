@@ -62,7 +62,12 @@
 
 | 模块 | 实现 |
 |------|------|
-| 语言 | Python 3.10+ |
+| 后端语言 | Python 3.10+ |
+| 前端语言 | TypeScript |
+| 前端框架 | Vue 3 |
+| UI 组件库 | Element Plus |
+| 构建工具 | Vite |
+| 后端框架 | FastAPI |
 | LLM SDK | 自定义 LLMClient (支持国产模型) |
 | Docker 通讯 | docker-py (Docker SDK for Python) |
 | 类型检查 | Pydantic V2 |
@@ -84,7 +89,8 @@
 - **文件系统快照**：支持在执行危险操作前对容器进行快照，以便随时回滚。
 - **知识库增强**：扩展 CuratorAgent 的能力，支持更复杂的知识管理和检索功能。
 - **多Agent协作**：实现更复杂的多Agent协作模式，解决更复杂的任务。
-- **Web界面**：为系统添加 Web 界面，提供更友好的用户交互体验。
+- **实时消息推送**：支持 WebSocket 实时消息推送，提升用户体验。
+- **用户权限管理**：添加用户认证和权限控制功能。
 
 ## 7. 实现细节 (Implementation Details)
 
@@ -128,37 +134,77 @@
 - Python 3.10+
 - Docker 环境
 - 配置好的 LLM API 密钥
+- Node.js 18+ (前端开发)
+- npm 或 yarn (前端包管理)
 
-### 运行步骤
+### 后端运行步骤
 
 1. 安装依赖：`pip install -r requirements.txt`
 2. 配置环境变量：`cp .env.example .env` 并填写相关配置
-3. 启动系统：`python main.py`
-4. 在终端中输入自然语言指令，系统会自动处理并执行
+3. 启动 API 服务：`python src/api/main.py`
+4. 服务默认运行在 http://localhost:8000
+
+### 前端运行步骤
+
+1. 进入前端目录：`cd frontend`
+2. 安装依赖：`npm install`
+3. 启动开发服务器：`npm run dev`
+4. 前端默认运行在 http://localhost:5173
+
+### 生产部署
+
+1. 前端构建：`cd frontend && npm run build`
+2. 后端使用 uvicorn 启动：`uvicorn src.api.main:app --host 0.0.0.0 --port 8000`
+3. 使用 Nginx 或 Caddy 代理前端静态文件和后端 API
 
 ## 9. 代码结构
 
 ```
-src/
-├── agent/            # Agent 相关代码
-│   ├── __init__.py
-│   ├── agent.py      # Agent 实现
-│   ├── base.py       # 基类定义
-│   ├── context.py    # 上下文管理
-│   ├── prompt.py     # 提示词管理
-│   ├── tools.py      # 工具管理
-│   ├── statemachine.py # 状态机实现
-│   └── types.py      # 类型定义
-├── llm/              # LLM 相关代码
-│   ├── __init__.py
-│   └── client.py     # LLM 客户端
-├── executor/         # Docker 执行器
-│   ├── __init__.py
-│   └── docker.py     # Docker 执行逻辑
-├── logger/           # 日志系统
-│   ├── __init__.py
-│   └── logger.py     # 日志配置
-└── main.py           # 主入口
+├── src/
+│   ├── agent/            # Agent 相关代码
+│   │   ├── __init__.py
+│   │   ├── agent.py      # Agent 实现
+│   │   ├── base.py       # 基类定义
+│   │   ├── context.py    # 上下文管理
+│   │   ├── prompt.py     # 提示词管理
+│   │   ├── tools.py      # 工具管理
+│   │   ├── statemachine.py # 状态机实现
+│   │   └── types.py      # 类型定义
+│   ├── api/              # FastAPI 后端 API
+│   │   └── main.py       # API 入口
+│   ├── llm/              # LLM 相关代码
+│   │   ├── __init__.py
+│   │   └── client.py     # LLM 客户端
+│   ├── executor/         # Docker 执行器
+│   │   ├── __init__.py
+│   │   └── docker.py     # Docker 执行逻辑
+│   ├── logger/           # 日志系统
+│   │   ├── __init__.py
+│   │   └── logger.py     # 日志配置
+│   └── main.py           # 主入口
+├── frontend/             # Vue 3 前端应用
+│   ├── src/
+│   │   ├── views/        # 页面视图
+│   │   │   ├── ChatView.vue      # 聊天页面
+│   │   │   ├── HistoryView.vue   # 历史记录页面
+│   │   │   └── SettingsView.vue  # 设置页面
+│   │   ├── api/          # API 调用封装
+│   │   │   └── agent.ts  # Agent API 调用
+│   │   ├── types/        # TypeScript 类型定义
+│   │   │   └── index.ts  # 类型定义文件
+│   │   ├── router/       # 路由配置
+│   │   │   └── index.ts  # 路由配置文件
+│   │   ├── App.vue       # 根组件
+│   │   └── main.ts       # 前端入口
+│   ├── index.html        # HTML 模板
+│   ├── vite.config.ts    # Vite 配置
+│   ├── tsconfig.json     # TypeScript 配置
+│   └── package.json      # 前端依赖配置
+├── examples/            # 示例代码
+├── .env.example         # 环境变量示例
+├── .gitignore           # Git 忽略文件
+├── PROJECT.md           # 项目技术架构文档
+└── environment.yml      # Conda 环境配置
 ```
 
 ## 10. 总结

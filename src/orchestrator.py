@@ -27,6 +27,30 @@ class AgentOrchestrator:
         self.prompt_manager = PromptManager(kb_search=policy.allow_kb_search)
         self.tool_registry = ToolRegistry(kb_search=policy.allow_kb_search)
 
+    async def run_step_by_step(
+        self,
+        task_description: str,
+        worker_config: DockerConfig,  # 1. 外部传入配置好的 Docker 环境
+    ):
+        judge = JudgeAgent(
+            llm_client=self.llm_client, 
+            context_manager=self.context_manager, 
+            prompt_manager=self.prompt_manager, 
+            tool_registry=self.tool_registry
+            )
+        worker = WorkerAgent(
+            llm_client=self.llm_client, 
+            context_manager=self.context_manager, 
+            prompt_manager=self.prompt_manager, 
+            tool_registry=self.tool_registry
+            )
+        judge.max_iterations = 10
+        worker.max_iterations = 25
+
+        self._setup_worker_handlers(worker, judge, worker_executor)
+
+        
+
     async def run_mission(
         self, 
         task_description: str,

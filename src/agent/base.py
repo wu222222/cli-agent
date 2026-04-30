@@ -51,6 +51,32 @@ class BaseAgent(ABC):
         """上下文控制流"""
         pass
 
+    async def step(self) -> StateTransition:
+        """
+        单步执行核心逻辑：执行 -> 获取建议状态 -> 转换
+        """
+        # 1. 检查是否已经结束
+        if self.state_machine.is_in_state(AgentState.COMPLETED):
+            return StateTransition(state=AgentState.COMPLETED)
+
+        # 2. 调用当前状态的 execute，获取状态机的“建议”
+        # 例如：ThinkingState 执行完后返回一个指向 WAITING_CONFIRMATION 的 transition
+        transition = await self.state_machine.execute()
+        
+        # 3. 真正触发状态机的转换逻辑（执行 on_exit/on_enter）
+        # 注意：这里的 transition.state 是建议的目标状态
+        success = self.state_machine.transition(transition.state, transition.data)
+        
+        if not success:
+            # 如果转换失败（比如 can_transition_to 校验没过），返回错误状态
+            return StateTransition(
+                state=AgentState.ERROR, 
+                data=ErrorData(error_message=f"Illegal transition to {transition.state}")
+            )
+
+        # 4. 返回当前的 transition 对象，供 Orchestrator 或 API 层判断
+        return transition
+
     async def run(self,input:str | dict | Message = None) -> str:
         """通用的 ReAct 循环调度逻辑"""
         self._prepare_context(input)

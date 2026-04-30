@@ -4,4 +4,6 @@ workspace/
 logs/
 knowledge_base/
 
+node_modules/
+
 .env

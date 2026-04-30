@@ -93,7 +93,7 @@ class ThinkingToExecutingData(StateData):
     response: AgentResponse
     # 将控制流属性移动到这里
     requires_confirmation: bool = False
-    confirmed: bool = False
+    confirmed: Optional[bool] = None
     confirmation_prompt: Optional[str] = ""
 
     def format_for_log(self) -> str:

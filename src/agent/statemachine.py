@@ -153,7 +153,7 @@ class WaitingConfirmationState(State):
         self.data:Optional[ThinkingToExecutingData] = None
     
     def on_enter(self, data: Optional[StateData] = None):
-        self.response = None
+        self.data = None # 重置数据状态
         if isinstance(data, ThinkingToExecutingData):
             self.data = data
         else:
@@ -165,22 +165,40 @@ class WaitingConfirmationState(State):
 
     async def execute(self, data: Optional[StateData] = None) -> StateTransition:
         """执行等待确认状态逻辑"""
-        # 获取之前保存的响应
-        if self.data is None:
-            logger.error("等待确认状态未提供响应")
-            return StateTransition(state=AgentState.ERROR, data=ErrorData(error_message="等待确认状态未提供响应"))
+        if not isinstance(self.data, ThinkingToExecutingData):
+            return StateTransition(state=AgentState.ERROR, data=ErrorData(error_message="数据类型错误"))
+
+        # 如果不需要确认，直接进入执行
+        if not self.data.requires_confirmation:
+            return StateTransition(state=AgentState.EXECUTING, data=self.data)
+
+        # 处理需要确认的情况
+        # 注意：这里我们优先检查传入的 data 是否携带了最新的 confirmed 状态
+        incoming_confirmed = getattr(data, 'confirmed', None) if data else None
         
-        if self.data and self.data.requires_confirmation:
-            confirmation_prompt = self.data.confirmation_prompt 
-            thought = self.data.response.thought
-            confirmed = self.confirmation_handler(confirmation_prompt,thought)
-            if confirmed:
-                return StateTransition(state=AgentState.EXECUTING, data=self.data)
-            else:
-                self.agent.context_manager.set_final_answer("操作已取消")
-                return StateTransition(state=AgentState.COMPLETED)
-           
-        return StateTransition(state=AgentState.ERROR, data=ErrorData(error_message="操作已取消"))
+        if incoming_confirmed is None:
+            # 情况 A: 用户还没点按钮，继续保持原地挂起
+            return StateTransition(state=AgentState.WAITING_CONFIRMATION, data=self.data)
+        
+        if incoming_confirmed is True:
+            # 情况 B: 用户点允许
+            self.data.confirmed = True
+            return StateTransition(state=AgentState.EXECUTING, data=self.data)
+        else:
+            # 情况 C: 用户点拒绝 (incoming_confirmed is False)
+            self.agent.context_manager.set_final_answer("操作已被用户取消")
+            return StateTransition(state=AgentState.COMPLETED)
+
+        # if self.data.requires_confirmation:
+        #     confirmation_prompt = self.data.confirmation_prompt 
+        #     thought = self.data.response.thought
+        #     confirmed = self.confirmation_handler(confirmation_prompt,thought)
+        #     if confirmed:
+        #         return StateTransition(state=AgentState.EXECUTING, data=self.data)
+        #     else:
+        #         self.agent.context_manager.set_final_answer("操作已取消")
+        #         return StateTransition(state=AgentState.COMPLETED)
+
     
     def can_transition_to(self, new_state: AgentState, data: Optional[StateData] = None) -> bool:
         if new_state == AgentState.EXECUTING:
@@ -189,25 +207,25 @@ class WaitingConfirmationState(State):
             return True
         return False
 
-    def confirmation_handler(self, prompt: str,thought: str = None) -> bool:
-        """人机确认处理器"""
-        print("\n" + "=" * 60)
-        print("🔐 安全确认")
-        if thought:
-            print(f"思考: {thought}")
-        print("=" * 60)
-        print(f"⚠️  {prompt}")
-        print("=" * 60)
+    # def confirmation_handler(self, prompt: str,thought: str = None) -> bool:
+    #     """人机确认处理器"""
+    #     print("\n" + "=" * 60)
+    #     print("🔐 安全确认")
+    #     if thought:
+    #         print(f"思考: {thought}")
+    #     print("=" * 60)
+    #     print(f"⚠️  {prompt}")
+    #     print("=" * 60)
         
-        # 等待用户确认
-        while True:
-            confirm = input("\n是否确认执行？(y/n): ").lower().strip()
-            if confirm == 'y':
-                return True
-            elif confirm == 'n':
-                return False
-            else:
-                print("请输入 'y' 或 'n'")
+    #     # 等待用户确认
+    #     while True:
+    #         confirm = input("\n是否确认执行？(y/n): ").lower().strip()
+    #         if confirm == 'y':
+    #             return True
+    #         elif confirm == 'n':
+    #             return False
+    #         else:
+    #             print("请输入 'y' 或 'n'")
 
 
 class CompletedState(State):
