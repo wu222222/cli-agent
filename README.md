@@ -8,7 +8,7 @@
 
 > "让 AI 拥有操作系统的能力，同时将其关进安全的笼子里。"
 
-![前端效果](code_task_prompt/demonstration_picture/放在开头.png)
+![前端效果](docs/demonstration_picture/放在开头.png)
 
 ---
 
@@ -123,7 +123,7 @@ npm run dev
 - **容器配置**: 容器名称、网络模式、内存限制、命令超时
 - **存储配置**: 工作目录挂载、知识库挂载及读写权限
 
-![Docker 配置页面](code_task_prompt/demonstration_picture/docker设置.png)
+![Docker 配置页面](docs/demonstration_picture/docker设置.png)
 
 ### 聊天交互页面 (`/`)
 
@@ -134,11 +134,11 @@ npm run dev
 - **多 Agent 展示**: 区分 WorkerAgent、JudgeAgent 的输出，带不同标识
 - **Curator 命令**: 输入 `/summary` 可触发 CuratorAgent 整理对话历史
 
-![命令确认](code_task_prompt/demonstration_picture/命令确认.png)
+![命令确认](docs/demonstration_picture/命令确认.png)
 
 ### 完整效果
 
-![完整效果图](code_task_prompt/demonstration_picture/完整效果图.png)
+![完整效果图](docs/demonstration_picture/完整效果图.png)
 
 ---
 
