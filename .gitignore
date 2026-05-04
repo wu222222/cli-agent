@@ -7,3 +7,5 @@ knowledge_base/
 node_modules/
 .claude/
 .env
+
+code_task_prompt/
