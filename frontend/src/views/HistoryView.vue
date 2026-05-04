@@ -2,7 +2,7 @@
   <div class="history-container">
     <div class="history-header">
       <h2>历史记录</h2>
-      <button class="clear-btn" @click="clearHistory">清空历史</button>
+      <button class="clear-btn" @click="clearAll">清空历史</button>
     </div>
 
     <div class="history-list">
@@ -10,17 +10,14 @@
         v-for="(item, index) in history"
         :key="index"
         class="history-item"
-        @click="loadHistory(item)"
       >
         <div class="history-preview">
           <p class="history-query">{{ item.query }}</p>
-          <p class="history-time">{{ item.timestamp }}</p>
+          <p class="history-response">{{ item.response }}</p>
         </div>
-        <button class="delete-btn" @click.stop="deleteHistory(index)">删除</button>
       </div>
 
       <div v-if="history.length === 0" class="empty-state">
-        <span class="empty-icon">📋</span>
         <p>暂无历史记录</p>
       </div>
     </div>
@@ -28,38 +25,35 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
+import { getHistory, clearHistory } from '@/api/agent'
 
 interface HistoryItem {
   query: string
   response: string
-  timestamp: string
 }
 
-const history = ref<HistoryItem[]>([
-  {
-    query: '列出当前目录下的文件',
-    response: '已执行 ls -la 命令',
-    timestamp: '2024-01-15 14:30:00'
-  },
-  {
-    query: '查找最大的5个文件',
-    response: '已执行 du -ah . | sort -rh | head -n 5',
-    timestamp: '2024-01-15 14:25:00'
+const history = ref<HistoryItem[]>([])
+
+const loadHistory = async () => {
+  try {
+    const data = await getHistory()
+    history.value = data as HistoryItem[]
+  } catch {
+    history.value = []
   }
-])
-
-const loadHistory = (item: HistoryItem) => {
-  console.log('Loading history:', item)
 }
 
-const deleteHistory = (index: number) => {
-  history.value.splice(index, 1)
+const clearAll = async () => {
+  try {
+    await clearHistory()
+    history.value = []
+  } catch {
+    // ignore
+  }
 }
 
-const clearHistory = () => {
-  history.value = []
-}
+onMounted(loadHistory)
 </script>
 
 <style lang="scss">
@@ -82,6 +76,7 @@ const clearHistory = () => {
     color: #fff;
     font-size: 18px;
     font-weight: 600;
+    margin: 0;
   }
 
   .clear-btn {
@@ -120,60 +115,27 @@ const clearHistory = () => {
 }
 
 .history-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
   padding: 12px 16px;
   background: rgba(255, 255, 255, 0.05);
   border-radius: 8px;
   margin-bottom: 8px;
-  cursor: pointer;
-  transition: all 0.2s;
-
-  &:hover {
-    background: rgba(255, 255, 255, 0.1);
-    transform: translateX(4px);
-  }
 
   .history-preview {
-    flex: 1;
-    min-width: 0;
-
     .history-query {
       color: #fff;
       font-size: 14px;
-      margin: 0 0 4px;
+      margin: 0 0 8px;
+      font-weight: 500;
+    }
+
+    .history-response {
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 13px;
+      margin: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-
-    .history-time {
-      color: rgba(255, 255, 255, 0.5);
-      font-size: 12px;
-      margin: 0;
-    }
-  }
-
-  .delete-btn {
-    padding: 4px 8px;
-    background: transparent;
-    color: rgba(255, 255, 255, 0.5);
-    border: none;
-    border-radius: 4px;
-    font-size: 12px;
-    cursor: pointer;
-    opacity: 0;
-    transition: all 0.2s;
-
-    &:hover {
-      background: rgba(220, 53, 69, 0.2);
-      color: #dc3545;
-    }
-  }
-
-  &:hover .delete-btn {
-    opacity: 1;
   }
 }
 
@@ -184,12 +146,6 @@ const clearHistory = () => {
   justify-content: center;
   padding: 60px 20px;
   color: rgba(255, 255, 255, 0.5);
-
-  .empty-icon {
-    font-size: 48px;
-    margin-bottom: 16px;
-    opacity: 0.5;
-  }
 
   p {
     font-size: 14px;

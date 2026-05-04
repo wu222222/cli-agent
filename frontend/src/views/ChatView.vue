@@ -2,9 +2,12 @@
   <div class="chat-container">
     <div class="chat-header">
       <h1>Safe-CLI-Agent</h1>
-      <span class="status-indicator" :class="{ online: isConnected }">
-        {{ isConnected ? '已连接' : '离线' }}
-      </span>
+      <div class="header-actions">
+        <button class="header-btn" @click="$router.push('/setup')" title="Docker 配置">Docker</button>
+        <span class="status-indicator" :class="{ online: isConnected }">
+          {{ isConnected ? '已连接' : '离线' }}
+        </span>
+      </div>
     </div>
 
     <div class="chat-messages" ref="messagesContainer">
@@ -19,26 +22,18 @@
         </div>
         <div class="message-content">
           <div class="message-header">
-            <span>{{ message.role === 'user' ? '用户' : 'Agent' }}</span>
+            <span>{{ message.role === 'user' ? '用户' : (message.agent || 'Agent') }}</span>
             <span class="message-time">{{ message.timestamp }}</span>
           </div>
           <div class="message-body">
-            <pre v-if="message.type === 'code'">{{ message.content }}</pre>
+            <pre v-if="message.type === 'code'" class="tool-output">{{ message.content }}</pre>
             <p v-else>{{ message.content }}</p>
-          </div>
-          <div v-if="message.thought" class="message-thought">
-            <span class="thought-icon">💭</span>
-            <span>{{ message.thought }}</span>
           </div>
         </div>
       </div>
 
       <div v-if="isThinking" class="thinking-indicator">
-        <span class="thinking-dots">
-          <span></span>
-          <span></span>
-          <span></span>
-        </span>
+        <span class="thinking-dots"><span></span><span></span><span></span></span>
         <span>Agent 正在思考...</span>
       </div>
     </div>
@@ -71,16 +66,17 @@
 
 <script setup lang="ts">
 import { ref, onMounted, nextTick } from 'vue'
-import { sendMessage as apiSendMessage, checkConnection } from '@/api/agent'
+import { sendMessage as apiSendMessage, sendCuratorTask, connectStream, checkConnection } from '@/api/agent'
 import type { Message } from '@/types'
 
 const messages = ref<Message[]>([
   {
     role: 'system',
-    content: '欢迎使用 Safe-CLI-Agent！我可以帮助你执行命令行操作。',
+    content: '欢迎使用 Safe-CLI-Agent！我可以帮助你执行命令行操作。\n输入 /summary 可以让 CuratorAgent 整理对话历史并总结。',
     timestamp: new Date().toLocaleTimeString(),
     thought: '',
-    type: 'text'
+    type: 'text',
+    agent: 'System'
   }
 ])
 
@@ -88,7 +84,10 @@ const inputMessage = ref('')
 const isThinking = ref(false)
 const isConnected = ref(false)
 const pendingCommand = ref('')
+const pendingRequestId = ref('')
 const messagesContainer = ref<HTMLElement | null>(null)
+
+const now = () => new Date().toLocaleTimeString()
 
 const scrollToBottom = async () => {
   await nextTick()
@@ -97,52 +96,111 @@ const scrollToBottom = async () => {
   }
 }
 
+const pushMessage = async (msg: Message) => {
+  messages.value.push(msg)
+  await scrollToBottom()
+}
+
+const listenStream = (requestId: string) => {
+  connectStream(requestId, {
+    onToolStart: (data) => {
+      pushMessage({
+        role: 'system',
+        content: data.content,
+        timestamp: now(),
+        thought: '',
+        type: 'text',
+        agent: data.agent
+      })
+    },
+    onToolResult: (data) => {
+      pushMessage({
+        role: 'system',
+        content: data.content,
+        timestamp: now(),
+        thought: '',
+        type: 'code',
+        agent: data.agent
+      })
+    },
+    onConfirm: (data) => {
+      pendingCommand.value = data.content
+      pendingRequestId.value = requestId
+      isThinking.value = false
+      pushMessage({
+        role: 'system',
+        content: data.content,
+        timestamp: now(),
+        thought: '',
+        type: 'text',
+        agent: data.agent
+      })
+    },
+    onFinal: (data) => {
+      pushMessage({
+        role: 'system',
+        content: data.content,
+        timestamp: now(),
+        thought: '',
+        type: 'text',
+        agent: data.agent
+      })
+      isThinking.value = false
+    },
+    onError: (data) => {
+      pushMessage({
+        role: 'system',
+        content: `错误：${data.content}`,
+        timestamp: now(),
+        thought: '',
+        type: 'text'
+      })
+      isThinking.value = false
+    }
+  })
+}
+
+const CURATOR_COMMANDS = ['/summary', '/curator', '/总结', '/整理']
+
 const sendMessage = async () => {
   if (!inputMessage.value.trim() || isThinking.value) return
 
-  const userMessage: Message = {
+  const content = inputMessage.value
+  inputMessage.value = ''
+
+  await pushMessage({
     role: 'user',
-    content: inputMessage.value,
-    timestamp: new Date().toLocaleTimeString(),
+    content,
+    timestamp: now(),
     thought: '',
     type: 'text'
-  }
-
-  messages.value.push(userMessage)
-  inputMessage.value = ''
-  await scrollToBottom()
+  })
 
   try {
     isThinking.value = true
 
-    const response = await apiSendMessage(userMessage.content)
-    
-    if (response.type === 'confirm') {
-      pendingCommand.value = response.content
-      isThinking.value = false
-      return
-    }
+    // 检测是否为 Curator 命令
+    const trimmed = content.trim()
+    const isCuratorCommand = CURATOR_COMMANDS.some(cmd => trimmed.startsWith(cmd))
+    const curatorTask = isCuratorCommand
+      ? trimmed.replace(/^\/\S+\s*/, '').trim() || '分析之前的对话历史，提取关键信息并整理到知识库中。'
+      : ''
 
-    const systemMessage: Message = {
-      role: 'system',
-      content: response.content,
-      timestamp: new Date().toLocaleTimeString(),
-      thought: response.thought || '',
-      type: response.type === 'code' ? 'code' : 'text'
+    if (isCuratorCommand) {
+      const response = await sendCuratorTask(curatorTask)
+      listenStream(response.request_id)
+    } else {
+      const response = await apiSendMessage(content)
+      listenStream(response.request_id)
     }
-
-    messages.value.push(systemMessage)
-    await scrollToBottom()
   } catch (error) {
-    const errorMessage: Message = {
+    await pushMessage({
       role: 'system',
       content: `错误：${error instanceof Error ? error.message : '未知错误'}`,
-      timestamp: new Date().toLocaleTimeString(),
+      timestamp: now(),
       thought: '',
       type: 'text'
-    }
-    messages.value.push(errorMessage)
-  } finally {
+    })
     isThinking.value = false
   }
 }
@@ -150,38 +208,28 @@ const sendMessage = async () => {
 const confirmCommand = async () => {
   if (!pendingCommand.value) return
 
-  isThinking.value = true
+  const cmd = pendingCommand.value
   pendingCommand.value = ''
 
   try {
-    const response = await apiSendMessage(pendingCommand.value, true)
-    
-    const systemMessage: Message = {
-      role: 'system',
-      content: response.content,
-      timestamp: new Date().toLocaleTimeString(),
-      thought: response.thought || '',
-      type: response.type === 'code' ? 'code' : 'text'
-    }
-
-    messages.value.push(systemMessage)
-    await scrollToBottom()
+    isThinking.value = true
+    const response = await apiSendMessage(cmd, true)
+    listenStream(response.request_id)
   } catch (error) {
-    const errorMessage: Message = {
+    await pushMessage({
       role: 'system',
       content: `错误：${error instanceof Error ? error.message : '未知错误'}`,
-      timestamp: new Date().toLocaleTimeString(),
+      timestamp: now(),
       thought: '',
       type: 'text'
-    }
-    messages.value.push(errorMessage)
-  } finally {
+    })
     isThinking.value = false
   }
 }
 
 const cancelCommand = () => {
   pendingCommand.value = ''
+  pendingRequestId.value = ''
 }
 
 onMounted(async () => {
@@ -209,10 +257,25 @@ onMounted(async () => {
   background: rgba(255, 255, 255, 0.05);
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 
-  h1 {
-    color: #fff;
-    font-size: 20px;
-    font-weight: 600;
+  h1 { color: #fff; font-size: 20px; font-weight: 600; margin: 0; }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .header-btn {
+    padding: 4px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.7);
+    transition: all 0.2s;
+    &:hover { border-color: #007bff; color: #fff; }
   }
 
   .status-indicator {
@@ -221,10 +284,7 @@ onMounted(async () => {
     font-size: 12px;
     background: #dc3545;
     color: #fff;
-
-    &.online {
-      background: #28a745;
-    }
+    &.online { background: #28a745; }
   }
 }
 
@@ -235,147 +295,72 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
 
-  &::-webkit-scrollbar {
-    width: 6px;
-  }
-
-  &::-webkit-scrollbar-track {
-    background: rgba(255, 255, 255, 0.05);
-  }
-
-  &::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.2);
-    border-radius: 3px;
-  }
+  &::-webkit-scrollbar { width: 6px; }
+  &::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.05); }
+  &::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); border-radius: 3px; }
 }
 
 .message-item {
   display: flex;
   gap: 12px;
-  margin-bottom: 20px;
-  max-width: 80%;
+  margin-bottom: 16px;
+  max-width: 85%;
 
   &.user-message {
     margin-left: auto;
     flex-direction: row-reverse;
-
-    .message-content {
-      background: #007bff;
-    }
+    .message-content { background: #007bff; }
   }
 
-  &.system-message {
-    .message-content {
-      background: rgba(255, 255, 255, 0.1);
-    }
-  }
+  &.system-message .message-content { background: rgba(255, 255, 255, 0.1); }
 
   .message-avatar {
-    width: 40px;
-    height: 40px;
+    width: 36px;
+    height: 36px;
     border-radius: 50%;
     background: rgba(255, 255, 255, 0.1);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 18px;
+    font-size: 16px;
     flex-shrink: 0;
   }
 
   .message-content {
     flex: 1;
     border-radius: 12px;
-    padding: 12px 16px;
+    padding: 10px 14px;
     color: #fff;
 
     .message-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 8px;
-      font-size: 12px;
-      opacity: 0.7;
-
-      .message-time {
-        margin-left: 12px;
-      }
+      margin-bottom: 6px;
+      font-size: 11px;
+      opacity: 0.6;
     }
 
     .message-body {
       font-size: 14px;
       line-height: 1.6;
-
-      pre {
-        background: rgba(0, 0, 0, 0.3);
-        padding: 12px;
-        border-radius: 8px;
-        overflow-x: auto;
-        margin: 0;
-        font-family: 'Fira Code', monospace;
-        font-size: 13px;
-      }
-    }
-
-    .message-thought {
-      margin-top: 8px;
-      padding: 8px 12px;
-      background: rgba(255, 215, 0, 0.1);
-      border-radius: 8px;
-      font-size: 12px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      color: #ffd700;
-
-      .thought-icon {
-        font-size: 14px;
-      }
+      p { margin: 0; }
     }
   }
 }
 
-.thinking-indicator {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 12px;
-  color: #fff;
-  font-size: 14px;
-  align-self: flex-start;
-
-  .thinking-dots {
-    display: flex;
-    gap: 4px;
-
-    span {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #007bff;
-      animation: dotPulse 1.4s infinite ease-in-out;
-
-      &:nth-child(2) {
-        animation-delay: 0.2s;
-      }
-
-      &:nth-child(3) {
-        animation-delay: 0.4s;
-      }
-    }
-  }
-}
-
-@keyframes dotPulse {
-  0%, 80%, 100% {
-    transform: scale(0);
-    opacity: 0.5;
-  }
-  40% {
-    transform: scale(1);
-    opacity: 1;
-  }
+.tool-output {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-family: 'Fira Code', monospace;
+  font-size: 12px;
+  margin: 0;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 300px;
+  overflow-y: auto;
 }
 
 .command-preview {
@@ -392,10 +377,6 @@ onMounted(async () => {
     color: #ffc107;
     font-size: 14px;
     margin-bottom: 12px;
-
-    .warning-icon {
-      font-size: 18px;
-    }
   }
 
   .command-text {
@@ -422,25 +403,41 @@ onMounted(async () => {
       border: none;
       transition: all 0.2s;
 
-      &.btn-confirm {
-        background: #28a745;
-        color: #fff;
-
-        &:hover {
-          background: #218838;
-        }
-      }
-
-      &.btn-cancel {
-        background: rgba(255, 255, 255, 0.1);
-        color: #fff;
-
-        &:hover {
-          background: rgba(255, 255, 255, 0.2);
-        }
-      }
+      &.btn-confirm { background: #28a745; color: #fff; &:hover { background: #218838; } }
+      &.btn-cancel { background: rgba(255, 255, 255, 0.1); color: #fff; &:hover { background: rgba(255, 255, 255, 0.2); } }
     }
   }
+}
+
+.thinking-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  color: #fff;
+  font-size: 14px;
+  align-self: flex-start;
+
+  .thinking-dots {
+    display: flex;
+    gap: 4px;
+    span {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #007bff;
+      animation: dotPulse 1.4s infinite ease-in-out;
+      &:nth-child(2) { animation-delay: 0.2s; }
+      &:nth-child(3) { animation-delay: 0.4s; }
+    }
+  }
+}
+
+@keyframes dotPulse {
+  0%, 80%, 100% { transform: scale(0); opacity: 0.5; }
+  40% { transform: scale(1); opacity: 1; }
 }
 
 .chat-input {
@@ -460,15 +457,8 @@ onMounted(async () => {
     font-size: 14px;
     resize: none;
     outline: none;
-    transition: border-color 0.2s;
-
-    &:focus {
-      border-color: #007bff;
-    }
-
-    &::placeholder {
-      color: rgba(255, 255, 255, 0.5);
-    }
+    &:focus { border-color: #007bff; }
+    &::placeholder { color: rgba(255, 255, 255, 0.5); }
   }
 
   .send-btn {
@@ -480,17 +470,9 @@ onMounted(async () => {
     font-size: 14px;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s;
     align-self: flex-end;
-
-    &:hover:not(:disabled) {
-      background: #0069d9;
-    }
-
-    &:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
+    &:hover:not(:disabled) { background: #0069d9; }
+    &:disabled { opacity: 0.5; cursor: not-allowed; }
   }
 }
 </style>

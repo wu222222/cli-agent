@@ -5,5 +5,5 @@ logs/
 knowledge_base/
 
 node_modules/
-
+.claude/
 .env

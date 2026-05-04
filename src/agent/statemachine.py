@@ -46,7 +46,7 @@ class WorkerThinkingState(State):
     async def execute(self, data: Optional[StateData] = None) -> StateTransition:
         """执行思考状态逻辑"""
         self.response = await self.agent._think()
-        
+
         logger.debug(f"状态{self.state},response:{self.response}")
 
         # 根据响应决定下一个状态
@@ -60,7 +60,12 @@ class WorkerThinkingState(State):
 
             case ActionType.EXECUTE_COMMAND:
                 needs_confirm = True
-                prompt = f"是否允许执行: {self.response.action_params.get('command')}?"
+                command = self.response.action_params.get('command', '')
+                thought = self.response.thought or ''
+                if thought:
+                    prompt = f"[思考] {thought}\n\n[命令] {command}\n\n是否允许执行以上命令?"
+                else:
+                    prompt = f"是否允许执行: {command}?"
                 out_data = ThinkingToExecutingData(
                     response=self.response,
                     requires_confirmation=needs_confirm,
@@ -173,19 +178,16 @@ class WaitingConfirmationState(State):
             return StateTransition(state=AgentState.EXECUTING, data=self.data)
 
         # 处理需要确认的情况
-        # 注意：这里我们优先检查传入的 data 是否携带了最新的 confirmed 状态
-        incoming_confirmed = getattr(data, 'confirmed', None) if data else None
-        
-        if incoming_confirmed is None:
+        # 检查 self.data.confirmed（由外部在调用 step() 前设置）
+        if self.data.confirmed is None:
             # 情况 A: 用户还没点按钮，继续保持原地挂起
             return StateTransition(state=AgentState.WAITING_CONFIRMATION, data=self.data)
-        
-        if incoming_confirmed is True:
+
+        if self.data.confirmed is True:
             # 情况 B: 用户点允许
-            self.data.confirmed = True
             return StateTransition(state=AgentState.EXECUTING, data=self.data)
         else:
-            # 情况 C: 用户点拒绝 (incoming_confirmed is False)
+            # 情况 C: 用户点拒绝
             self.agent.context_manager.set_final_answer("操作已被用户取消")
             return StateTransition(state=AgentState.COMPLETED)
 
