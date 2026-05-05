@@ -7,5 +7,6 @@ knowledge_base/
 node_modules/
 .claude/
 .env
+.vscode/
 
 code_task_prompt/
