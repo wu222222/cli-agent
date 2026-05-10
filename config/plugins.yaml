@@ -1,0 +1,88 @@
+# Safe-CLI-Agent 插件配置
+#
+# 字段说明:
+#   name:               工具名（LLM 返回的 tool_name）
+#   type:               插件类型（exec / network / local）
+#   bound_action:       绑定的 ActionType（execute_command / local_call / stop）
+#   requires_confirmation: 是否需要用户确认
+#   container_name:     Docker 容器名
+#   entrypoint_cmd:     容器内入口命令
+#   mount_dirs:         挂载目录列表，格式: "/host/path:/container/path"
+#   parameters:         工具参数 Schema
+#   category:           前端分类（shell / search / ai / other）
+#   icon:               前端图标标识
+#
+# 注意: call_judge 由系统自动注册（CallJudgeTool），无需在此配置
+
+plugins:
+  # Alpine Shell 插件
+  - name: "alpine_shell"
+    type: "exec"
+    bound_action: "execute_command"
+    requires_confirmation: true
+    description: "Alpine Linux 轻量级 shell 环境，适合基础命令操作"
+    container_name: "alpine_shell"
+    image: "alpine:latest"
+    entrypoint_cmd: "sh -c"
+    mount_dirs: ["./workspace:/workspace"]
+    category: "shell"
+    icon: "terminal"
+    parameters:
+      command:
+        type: "string"
+        description: "要执行的 shell 命令"
+    required_params: ["command"]
+
+  # MyLab 自定义环境插件
+  - name: "mylab"
+    type: "exec"
+    bound_action: "execute_command"
+    requires_confirmation: true
+    description: "自定义实验环境（flag 靶场）"
+    container_name: "mylab"
+    image: "my_lab_image:latest"
+    entrypoint_cmd: "sh -c"
+    mount_dirs: []
+    category: "shell"
+    icon: "terminal"
+    parameters:
+      command:
+        type: "string"
+        description: "要执行的 shell 命令"
+    required_params: ["command"]
+
+  # 知识库查询插件
+  - name: "grep_knowledge"
+    type: "exec"
+    bound_action: "execute_command"
+    requires_confirmation: false
+    description: "在知识库容器中搜索 CLI 最佳实践、故障排除步骤和命令语法"
+    container_name: "kb_container"
+    image: "alpine:latest"
+    entrypoint_cmd: "sh -c"
+    mount_dirs: ["./knowledge_base:/knowledge_base"]
+    category: "search"
+    icon: "search"
+    parameters:
+      command:
+        type: "string"
+        description: "在知识库目录中执行的 Shell 命令，如 'grep -r keyword /knowledge_base'"
+    required_params: ["command"]
+
+  # SearXNG 搜索插件
+  - name: "search"
+    type: "exec"
+    bound_action: "execute_command"
+    requires_confirmation: false
+    description: "通过 SearXNG 搜索引擎搜索互联网信息"
+    container_name: "searxng"
+    image: "searxng/searxng:latest"
+    entrypoint_cmd: "python3 /app/search.py"
+    mount_dirs: []
+    category: "search"
+    icon: "globe"
+    parameters:
+      query:
+        type: "string"
+        description: "搜索关键词"
+    required_params: ["query"]

@@ -1,14 +1,12 @@
-import asyncio
 import json
-from typing import Dict, Any, Optional, Callable
-from pydantic import ValidationError
+from typing import Optional, Dict, Any
 
 from src.logger import get_logger
 from src.llm import LLMClient, LLMConfig
 
-from .statemachine import WorkerStateMachine,JudgeStateMachine,CuratorStateMachine
+from .statemachine import WorkerStateMachine, JudgeStateMachine, CuratorStateMachine
 from .types import *
-from .base import BaseAgent,BaseStateMachine
+from .base import BaseAgent, BaseStateMachine
 
 from src.agent.context import ContextManager
 from src.agent.prompt import PromptManager
@@ -17,68 +15,46 @@ from src.agent.tools import ToolRegistry
 
 logger = get_logger(__name__)
 
+
 class WorkerAgent(BaseAgent):
     """工作代理，负责执行实际的任务"""
     def __init__(
-        self, 
-        name: str = "WorkerAgent", 
+        self,
+        name: str = "WorkerAgent",
         llm_client: Optional[LLMClient] = None,
         context_manager: Optional[ContextManager] = None,
         prompt_manager: Optional[PromptManager] = None,
         tool_registry: Optional[ToolRegistry] = None,
-        judge_agent: Optional["JudgeAgent"] = None,
-        ):
-        # 再调用父类的__init__
-        super().__init__(name, llm_client, context_manager,prompt_manager, tool_registry)
-        
-    
+        tool_names: Optional[list] = None,
+    ):
+        self._tool_names = tool_names
+        super().__init__(name, llm_client, context_manager, prompt_manager, tool_registry)
+
     def _setup_system_prompt(self) -> None:
-        system_prompt = self.prompt_manager._build_worker_prompt()
-        self.context_manager.set_system_prompt(self.name,system_prompt)
+        system_prompt = self.prompt_manager._build_worker_prompt(
+            tool_registry=self.tools,
+            tool_names=self._tool_names,
+        )
+        logger.info(f"WorkerAgent 系统提示词已生成，工具列表: {self._tool_names}")
+        self.context_manager.set_system_prompt(self.name, system_prompt)
 
     def _create_state_machine(self) -> BaseStateMachine:
         return WorkerStateMachine()
 
-    def _prepare_context(self,input:str = None) -> None:
-        """上下文控制流"""
+    def _prepare_context(self, input: str = None) -> None:
         if input:
-            self.context_manager.add_user_message(self.name,input, receivers=[self.name])
-
-    def _parse_action(self, response_text: str) -> Optional[LLMOutput]:
-        """解析 LLM 响应并返回结构化的 LLMOutput 对象"""
-        try:
-            # 1. 提取 JSON 字符串
-            if "```json" in response_text:
-                json_str = response_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in response_text:
-                json_str = response_text.split("```")[1].split("```")[0].strip()
-            else:
-                json_str = response_text.strip()
-
-            # 2. 解析 JSON
-            data = json.loads(json_str)
-            
-            # 3. 使用 Pydantic 进行结构校验
-            # 这一步会自动检查 thought 和 action 字段是否存在
-            return LLMOutput.model_validate(data)
-        
-        except (json.JSONDecodeError, IndexError, ValidationError) as e:
-            logger.warning(f"JSON 解析或结构校验失败: {e}")
-            return None
+            self.context_manager.add_user_message(self.name, input, receivers=[self.name])
 
     async def _think(self) -> AgentResponse:
         messages = self.context_manager.get_agent_messages(agent_name=self.name)
 
         try:
-            # 1. 调用 LLM
             response_text = await self.llm_client.achat(messages)
             logger.debug(f"LLM 响应原始文本: {response_text}")
 
-            # 2. 解析 JSON 结构
             llm_output = self._parse_action(response_text)
-            
+
             if not llm_output:
-                # 解析失败的兜底逻辑
                 return AgentResponse(
                     thought="解析失败，尝试直接回答",
                     content=response_text,
@@ -86,24 +62,41 @@ class WorkerAgent(BaseAgent):
                     action_params={"answer": response_text}
                 )
 
-            # 此时你可以直接访问 llm_output.thought 和 llm_output.action
             raw_type = llm_output.action.type
             action_params = llm_output.action.parameters
-            try:
-                action_type = ActionType(raw_type)
-            except ValueError:
-                logger.warning(f"未知的类型: {raw_type}，设为 STOP")
-                action_type = ActionType.STOP
+            llm_tool_name = llm_output.action.tool_name
+
+            # 解析动作类型和工具名
+            effective_tool = llm_tool_name or raw_type
+            action_type, found = ActionType.from_raw(raw_type)
+
+            logger.info(f"LLM 返回: type={raw_type!r}, tool_name={llm_tool_name!r}, effective={effective_tool!r}")
+
+            if not found:
+                # raw_type 不是 ActionType，查 ToolRegistry 的 bound_action
+                bound = self.tools.resolve_action(effective_tool)
+                if bound:
+                    action_type = bound
+                    logger.info(f"工具 '{effective_tool}' 绑定动作: {bound.value}")
+                else:
+                    logger.warning(f"未知的工具/动作: {effective_tool}，设为 STOP")
+                    action_type = ActionType.STOP
+
+            # tool_name 始终设置为 effective_tool（不管工具是否注册）
+            # 未注册的错误在 ToolRegistry.run() 中处理
+            tool_name = effective_tool
 
             agent_resp = AgentResponse(
-                thought=llm_output.thought, # 结构化存储思考
+                thought=llm_output.thought,
                 content=response_text,
                 action_type=action_type,
-                action_params=action_params
+                action_params=action_params,
+                tool_name=tool_name,
             )
-                
-            # 执行 Schema 校验（这一步会检查参数是否符合 base.py 里的定义）
-            agent_resp.validate_params()
+
+            # 参数校验（仅对 ACTION_SCHEMA_MAP 中定义的动作）
+            if action_type in ACTION_SCHEMA_MAP:
+                agent_resp.validate_params()
 
             return agent_resp
 
@@ -114,7 +107,7 @@ class WorkerAgent(BaseAgent):
 
 class JudgeAgent(BaseAgent):
     """评审代理，负责检查 Worker 的任务完成质量"""
-    
+
     def __init__(
         self,
         name: str = "JudgeAgent",
@@ -122,112 +115,64 @@ class JudgeAgent(BaseAgent):
         context_manager: Optional[ContextManager] = None,
         prompt_manager: Optional[PromptManager] = None,
         tool_registry: Optional[ToolRegistry] = None,
-        ):
-        # 再调用父类的__init__
-        super().__init__(name, llm_client, context_manager,prompt_manager, tool_registry)
+    ):
+        super().__init__(name, llm_client, context_manager, prompt_manager, tool_registry)
 
     def _setup_system_prompt(self) -> None:
         system_prompt = self.prompt_manager._build_judge_prompt()
-        self.context_manager.set_system_prompt(self.name,system_prompt)
+        self.context_manager.set_system_prompt(self.name, system_prompt)
 
     def _create_state_machine(self) -> BaseStateMachine:
-        # Judge 通常只需要单次思考或简单的状态机
         return JudgeStateMachine()
-    
-    def _execute_action(self, action_type: ActionType, action_params: Dict[str, Any]) -> str:
-        return super()._execute_action(action_type, action_params)
-
-    def _parse_action(self, response_text: str) -> Optional[LLMOutput]:
-        """解析 LLM 响应并返回结构化的 LLMOutput 对象"""
-        try:
-            # 1. 提取 JSON 字符串
-            if "```json" in response_text:
-                json_str = response_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in response_text:
-                json_str = response_text.split("```")[1].split("```")[0].strip()
-            else:
-                json_str = response_text.strip()
-
-            # 2. 解析 JSON
-            data = json.loads(json_str)
-            
-            # 3. 使用 Pydantic 进行结构校验
-            # 这一步会自动检查 thought 和 action 字段是否存在
-            return LLMOutput.model_validate(data)
-        
-        except (json.JSONDecodeError, IndexError, ValidationError) as e:
-            logger.warning(f"JSON 解析或结构校验失败: {e}")
-            return None
 
     def _prepare_context(self, input: Message = None) -> None:
-        """接受 Worker 的操作记录，添加到上下文管理器"""
         if isinstance(input, Message):
             self.context_manager.add_assistant_message(input.sender, input.content, input.receivers)
         else:
             logger.warning(f"JudgeAgent 接收的输入不是 Message 类型: {input}")
 
-    async def run(self,input:Message = None) -> str:
-        """评审Agent 运行循环"""
-        self._prepare_context(input)
-        # 统一从起始状态开始（假设子类状态机都有初始状态）
-        self.state_machine.transition(AgentState.THINKING)
-
-        try:
-            for iteration in range(self.max_iterations):
-                transition = await self.state_machine.execute()
-                next_state = transition.state
-                data = transition.data or {}
-
-                if not self.state_machine.transition(next_state, data):
-                    return f"[{self.name}] 状态转换错误"
-
-                if self.state_machine.is_in_state(AgentState.COMPLETED):
-                    return data
-                
-                if self.state_machine.is_in_state(AgentState.ERROR):
-                    return f"[{self.name}] 执行出错"
-
-            return "达到最大迭代次数"
-        except Exception as e:
-            self.state_machine.transition(AgentState.ERROR, data=ErrorData(error_message=str(e)))
-            return f"系统崩溃: {str(e)}"
+    def _get_final_result(self) -> Any:
+        sm = self.state_machine
+        completed = sm._states.get(AgentState.COMPLETED)
+        if completed and hasattr(completed, 'temp_data') and completed.temp_data:
+            return completed.temp_data
+        return super()._get_final_result()
 
     async def _think(self) -> AgentResponse:
-        messages = self.context_manager.get_agent_messages(agent_name=self.name,include_system_prompt=True)
-        # return None
+        messages = self.context_manager.get_agent_messages(agent_name=self.name, include_system_prompt=True)
         response_text = await self.llm_client.achat(messages)
-        
-        # 使用我们之前写好的通用解析逻辑
+
         llm_output = self._parse_action(response_text)
 
         if not llm_output:
-                # 解析失败的兜底逻辑
-                return AgentResponse(
-                    thought="解析失败，尝试直接回答",
-                    content=response_text,
-                    action_type=ActionType.STOP,
-                    action_params={"answer": response_text}
-                )
-        
+            return AgentResponse(
+                thought="解析失败，尝试直接回答",
+                content=response_text,
+                action_type=ActionType.STOP,
+                action_params={"answer": response_text},
+                tool_name="stop",
+            )
+
         raw_type = llm_output.action.type
-        action_params = llm_output.action.parameters
-        try:
-            action_type = ActionType(raw_type)
-        except ValueError:
-            logger.warning(f"未知的类型: {raw_type}，设为 STOP")
-            action_type = ActionType.STOP
+        # JudgeAgent 的 LLM 可能返回 "review"，映射到 LOCAL_CALL
+        if raw_type == "review":
+            action_type = ActionType.LOCAL_CALL
+        else:
+            action_type, _ = ActionType.from_raw(raw_type)
+
+        tool_name = llm_output.action.tool_name or raw_type
 
         agent_resp = AgentResponse(
-            thought=llm_output.thought, # 结构化存储思考
+            thought=llm_output.thought,
             content=response_text,
             action_type=action_type,
-            action_params=action_params
+            action_params=llm_output.action.parameters,
+            tool_name=tool_name,
         )
-            
-        # 执行 Schema 校验（这一步会检查参数是否符合 base.py 里的定义）
-        agent_resp.validate_params()
 
+        agent_resp.validate_params()
         return agent_resp
+
 
 class CuratorAgent(BaseAgent):
     """CuratorAgent，负责管理知识库"""
@@ -238,89 +183,60 @@ class CuratorAgent(BaseAgent):
         context_manager: Optional[ContextManager] = None,
         prompt_manager: Optional[PromptManager] = None,
         tool_registry: Optional[ToolRegistry] = None,
-        ):
-        # 再调用父类的__init__
-        super().__init__(name, llm_client, context_manager,prompt_manager, tool_registry)
-    
+    ):
+        super().__init__(name, llm_client, context_manager, prompt_manager, tool_registry)
+
     def _setup_system_prompt(self) -> None:
         system_prompt = self.prompt_manager._build_curator_prompt()
-        self.context_manager.set_system_prompt(self.name,system_prompt)
+        self.context_manager.set_system_prompt(self.name, system_prompt)
 
     def _prepare_context(self, input: str | dict | Message = None) -> None:
-        # curator 需要上下文，也可以没有上下文，直接返回输入
         if isinstance(input, str):
             self.context_manager.add_user_message(self.name, input, [self.name])
         else:
             logger.warning(f"CuratorAgent 接收的输入不是 str 类型: {input}")
-    
+
     def _create_state_machine(self) -> BaseStateMachine:
         return CuratorStateMachine()
-    
-    def _execute_action(self, action_type: ActionType, action_params: Dict[str, Any]) -> str:
-        return super()._execute_action(action_type, action_params)
-
-    def _parse_action(self, response_text: str) -> Optional[LLMOutput]:
-        """解析 LLM 响应并返回结构化的 LLMOutput 对象"""
-        try:
-            # 1. 提取 JSON 字符串
-            if "```json" in response_text:
-                json_str = response_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in response_text:
-                json_str = response_text.split("```")[1].split("```")[0].strip()
-            else:
-                json_str = response_text.strip()
-
-            # 2. 解析 JSON
-            data = json.loads(json_str)
-            
-            # 3. 使用 Pydantic 进行结构校验
-            # 这一步会自动检查 thought 和 action 字段是否存在
-            return LLMOutput.model_validate(data)
-        except (json.JSONDecodeError, IndexError, ValidationError) as e:
-            logger.warning(f"JSON 解析或结构校验失败: {e}")
-            return None
 
     async def _think(self) -> AgentResponse:
-        messages = self.context_manager.get_all_messages(agent_name=self.name,include_system_prompt=True)
+        messages = self.context_manager.get_all_messages(agent_name=self.name, include_system_prompt=True)
 
         try:
-            # 1. 调用 LLM
             response_text = await self.llm_client.achat(messages)
             logger.debug(f"LLM 响应原始文本: {response_text}")
 
-            # 2. 解析 JSON 结构
             llm_output = self._parse_action(response_text)
-            
+
             if not llm_output:
-                # 解析失败的兜底逻辑
                 return AgentResponse(
                     thought="解析失败，尝试直接回答",
                     content=response_text,
                     action_type=ActionType.STOP,
-                    action_params={"answer": response_text}
+                    action_params={"answer": response_text},
+                    tool_name="stop",
                 )
 
-            # 此时你可以直接访问 llm_output.thought 和 llm_output.action
             raw_type = llm_output.action.type
-            action_params = llm_output.action.parameters
-            try:
-                action_type = ActionType(raw_type)
-            except ValueError:
-                logger.warning(f"未知的类型: {raw_type}，设为 STOP")
-                action_type = ActionType.STOP
+            # CuratorAgent 的 LLM 可能返回 "curate"，映射到 EXECUTE_COMMAND
+            if raw_type == "curate":
+                action_type = ActionType.EXECUTE_COMMAND
+            else:
+                action_type, _ = ActionType.from_raw(raw_type)
+
+            tool_name = llm_output.action.tool_name or raw_type
 
             agent_resp = AgentResponse(
-                thought=llm_output.thought, # 结构化存储思考
+                thought=llm_output.thought,
                 content=response_text,
                 action_type=action_type,
-                action_params=action_params
+                action_params=llm_output.action.parameters,
+                tool_name=tool_name,
             )
-                
-            # 执行 Schema 校验（这一步会检查参数是否符合 base.py 里的定义）
-            agent_resp.validate_params()
 
+            agent_resp.validate_params()
             return agent_resp
 
         except Exception as e:
-            logger.error(f"WorkerAgent 思考过程出错: {e}")
+            logger.error(f"CuratorAgent 思考过程出错: {e}")
             raise

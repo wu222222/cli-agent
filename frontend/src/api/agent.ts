@@ -6,6 +6,9 @@ const api = axios.create({
   timeout: 60000
 })
 
+export { api }
+export default api
+
 export interface ChatApiResponse extends ApiResponse {
   request_id: string
 }
@@ -22,8 +25,8 @@ export const sendCuratorTask = async (task: string): Promise<ChatApiResponse> =>
 }
 
 export const connectStream = (requestId: string, handlers: {
-  onToolStart?: (data: { agent: string; tool: string; content: string }) => void
-  onToolResult?: (data: { agent: string; tool: string; content: string }) => void
+  onToolStart?: (data: { agent: string; tool: string; tool_type?: string; content: string }) => void
+  onToolResult?: (data: { agent: string; tool: string; tool_type?: string; content: string }) => void
   onConfirm?: (data: { content: string; agent: string }) => void
   onFinal?: (data: { content: string; agent: string }) => void
   onError?: (data: { content: string }) => void

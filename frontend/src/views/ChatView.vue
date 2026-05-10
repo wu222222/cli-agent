@@ -1,478 +1,371 @@
 <template>
   <div class="chat-container">
-    <div class="chat-header">
+    <header class="chat-header">
       <h1>Safe-CLI-Agent</h1>
       <div class="header-actions">
-        <button class="header-btn" @click="$router.push('/setup')" title="Docker 配置">Docker</button>
-        <span class="status-indicator" :class="{ online: isConnected }">
-          {{ isConnected ? '已连接' : '离线' }}
-        </span>
+        <el-button size="small" @click="$router.push('/tools')">
+          工具设置
+        </el-button>
+        <div class="status-indicator" :class="{ connected: chatStore.isConnected }"></div>
       </div>
-    </div>
+    </header>
 
-    <div class="chat-messages" ref="messagesContainer">
-      <div
-        v-for="(message, index) in messages"
-        :key="index"
-        class="message-item"
-        :class="{ 'user-message': message.role === 'user', 'system-message': message.role === 'system' }"
-      >
-        <div class="message-avatar">
-          {{ message.role === 'user' ? '👤' : '🤖' }}
-        </div>
-        <div class="message-content">
-          <div class="message-header">
-            <span>{{ message.role === 'user' ? '用户' : (message.agent || 'Agent') }}</span>
-            <span class="message-time">{{ message.timestamp }}</span>
-          </div>
-          <div class="message-body">
-            <pre v-if="message.type === 'code'" class="tool-output">{{ message.content }}</pre>
-            <p v-else>{{ message.content }}</p>
+    <div class="chat-body">
+      <div class="chat-main">
+        <div class="chat-messages" ref="messagesContainer">
+          <MessageBubble
+            v-for="(msg, index) in chatStore.messages"
+            :key="index"
+            :message="msg"
+          />
+          <div v-if="chatStore.isThinking" class="thinking-indicator">
+            <div class="dot-pulse"></div>
+            <span>Agent 正在思考...</span>
           </div>
         </div>
+
+        <ConfirmDialog
+          :visible="!!chatStore.pendingCommand"
+          :command="chatStore.pendingCommandText || chatStore.pendingCommand"
+          :thought="chatStore.pendingThought"
+          @confirm="handleConfirm"
+          @cancel="handleCancel"
+        />
+
+        <div class="chat-input">
+          <div class="input-wrapper">
+            <textarea
+              v-model="inputMessage"
+              placeholder="输入命令或问题... (/summary 进行总结)"
+              @keydown.enter.exact.prevent="handleSend"
+              :disabled="chatStore.isThinking"
+              rows="1"
+              ref="textareaRef"
+            ></textarea>
+            <button
+              class="send-button"
+              @click="handleSend"
+              :disabled="!inputMessage.trim() || chatStore.isThinking"
+            >
+              发送
+            </button>
+          </div>
+        </div>
       </div>
 
-      <div v-if="isThinking" class="thinking-indicator">
-        <span class="thinking-dots"><span></span><span></span><span></span></span>
-        <span>Agent 正在思考...</span>
-      </div>
-    </div>
-
-    <div class="command-preview" v-if="pendingCommand">
-      <div class="command-warning">
-        <span class="warning-icon">⚠️</span>
-        <span>即将执行以下命令，请确认：</span>
-      </div>
-      <pre class="command-text">{{ pendingCommand }}</pre>
-      <div class="command-actions">
-        <button class="btn btn-confirm" @click="confirmCommand">确认执行</button>
-        <button class="btn btn-cancel" @click="cancelCommand">取消</button>
-      </div>
-    </div>
-
-    <div class="chat-input">
-      <textarea
-        v-model="inputMessage"
-        placeholder="输入命令或问题..."
-        @keydown.enter.exact.prevent="sendMessage"
-        rows="3"
-      ></textarea>
-      <button class="send-btn" @click="sendMessage" :disabled="!inputMessage.trim() || isThinking">
-        发送
-      </button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue'
-import { sendMessage as apiSendMessage, sendCuratorTask, connectStream, checkConnection } from '@/api/agent'
-import type { Message } from '@/types'
+import { ref, watch, nextTick, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { sendMessage, sendCuratorTask, checkConnection } from '@/api/agent'
+import api from '@/api/agent'
+import { useChatStore } from '@/stores/chat'
+import { useSSE } from '@/composables/useSSE'
+import MessageBubble from '@/components/MessageBubble.vue'
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
-const messages = ref<Message[]>([
-  {
-    role: 'system',
-    content: '欢迎使用 Safe-CLI-Agent！我可以帮助你执行命令行操作。\n输入 /summary 可以让 CuratorAgent 整理对话历史并总结。',
-    timestamp: new Date().toLocaleTimeString(),
-    thought: '',
-    type: 'text',
-    agent: 'System'
-  }
-])
+const router = useRouter()
+const chatStore = useChatStore()
+const { connect } = useSSE()
+
+// 防止 handleConfirm 清除 pending 时触发 handleCancel
+let isConfirming = false
 
 const inputMessage = ref('')
-const isThinking = ref(false)
-const isConnected = ref(false)
-const pendingCommand = ref('')
-const pendingRequestId = ref('')
 const messagesContainer = ref<HTMLElement | null>(null)
-
-const now = () => new Date().toLocaleTimeString()
-
-const scrollToBottom = async () => {
-  await nextTick()
-  if (messagesContainer.value) {
-    messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
-  }
-}
-
-const pushMessage = async (msg: Message) => {
-  messages.value.push(msg)
-  await scrollToBottom()
-}
-
-const listenStream = (requestId: string) => {
-  connectStream(requestId, {
-    onToolStart: (data) => {
-      pushMessage({
-        role: 'system',
-        content: data.content,
-        timestamp: now(),
-        thought: '',
-        type: 'text',
-        agent: data.agent
-      })
-    },
-    onToolResult: (data) => {
-      pushMessage({
-        role: 'system',
-        content: data.content,
-        timestamp: now(),
-        thought: '',
-        type: 'code',
-        agent: data.agent
-      })
-    },
-    onConfirm: (data) => {
-      pendingCommand.value = data.content
-      pendingRequestId.value = requestId
-      isThinking.value = false
-      pushMessage({
-        role: 'system',
-        content: data.content,
-        timestamp: now(),
-        thought: '',
-        type: 'text',
-        agent: data.agent
-      })
-    },
-    onFinal: (data) => {
-      pushMessage({
-        role: 'system',
-        content: data.content,
-        timestamp: now(),
-        thought: '',
-        type: 'text',
-        agent: data.agent
-      })
-      isThinking.value = false
-    },
-    onError: (data) => {
-      pushMessage({
-        role: 'system',
-        content: `错误：${data.content}`,
-        timestamp: now(),
-        thought: '',
-        type: 'text'
-      })
-      isThinking.value = false
-    }
-  })
-}
+const textareaRef = ref<HTMLTextAreaElement | null>(null)
 
 const CURATOR_COMMANDS = ['/summary', '/curator', '/总结', '/整理']
 
-const sendMessage = async () => {
-  if (!inputMessage.value.trim() || isThinking.value) return
+function isCuratorCommand(text: string): boolean {
+  return CURATOR_COMMANDS.some(cmd => text.trim().toLowerCase().startsWith(cmd))
+}
 
-  const content = inputMessage.value
+function extractCuratorTask(text: string): string {
+  const cmd = CURATOR_COMMANDS.find(c => text.trim().toLowerCase().startsWith(c))
+  if (!cmd) return text
+  return text.slice(cmd.length).trim() || '请总结对话历史'
+}
+
+async function handleSend() {
+  const msg = inputMessage.value.trim()
+  if (!msg || chatStore.isThinking) return
+
   inputMessage.value = ''
 
-  await pushMessage({
+  chatStore.pushMessage({
     role: 'user',
-    content,
-    timestamp: now(),
+    content: msg,
+    timestamp: new Date().toLocaleTimeString(),
     thought: '',
-    type: 'text'
+    type: 'text',
   })
 
+  chatStore.isThinking = true
+
   try {
-    isThinking.value = true
-
-    // 检测是否为 Curator 命令
-    const trimmed = content.trim()
-    const isCuratorCommand = CURATOR_COMMANDS.some(cmd => trimmed.startsWith(cmd))
-    const curatorTask = isCuratorCommand
-      ? trimmed.replace(/^\/\S+\s*/, '').trim() || '分析之前的对话历史，提取关键信息并整理到知识库中。'
-      : ''
-
-    if (isCuratorCommand) {
-      const response = await sendCuratorTask(curatorTask)
-      listenStream(response.request_id)
+    let response
+    if (isCuratorCommand(msg)) {
+      response = await sendCuratorTask(extractCuratorTask(msg))
     } else {
-      const response = await apiSendMessage(content)
-      listenStream(response.request_id)
+      response = await sendMessage(msg)
+    }
+
+    if (response.request_id) {
+      connect(response.request_id)
+    } else {
+      chatStore.pushMessage({
+        role: 'system',
+        content: response.content,
+        timestamp: new Date().toLocaleTimeString(),
+        thought: response.thought || '',
+        type: 'text',
+        agent: response.agent,
+      })
+      chatStore.isThinking = false
     }
   } catch (error) {
-    await pushMessage({
+    chatStore.pushMessage({
       role: 'system',
-      content: `错误：${error instanceof Error ? error.message : '未知错误'}`,
-      timestamp: now(),
+      content: `请求失败: ${error instanceof Error ? error.message : '未知错误'}`,
+      timestamp: new Date().toLocaleTimeString(),
       thought: '',
-      type: 'text'
+      type: 'text',
+      agent: 'System',
     })
-    isThinking.value = false
+    chatStore.isThinking = false
   }
 }
 
-const confirmCommand = async () => {
-  if (!pendingCommand.value) return
+async function handleConfirm() {
+  isConfirming = true
+  const command = chatStore.pendingCommand
+  chatStore.clearPending()
+  isConfirming = false
 
-  const cmd = pendingCommand.value
-  pendingCommand.value = ''
+  chatStore.isThinking = true
 
   try {
-    isThinking.value = true
-    const response = await apiSendMessage(cmd, true)
-    listenStream(response.request_id)
+    const response = await sendMessage(command, true)
+    if (response.request_id) {
+      connect(response.request_id)
+    } else {
+      chatStore.pushMessage({
+        role: 'system',
+        content: response.content,
+        timestamp: new Date().toLocaleTimeString(),
+        thought: response.thought || '',
+        type: 'text',
+        agent: response.agent,
+      })
+      chatStore.isThinking = false
+    }
   } catch (error) {
-    await pushMessage({
+    chatStore.pushMessage({
       role: 'system',
-      content: `错误：${error instanceof Error ? error.message : '未知错误'}`,
-      timestamp: now(),
+      content: `确认执行失败: ${error instanceof Error ? error.message : '未知错误'}`,
+      timestamp: new Date().toLocaleTimeString(),
       thought: '',
-      type: 'text'
+      type: 'text',
+      agent: 'System',
     })
-    isThinking.value = false
+    chatStore.isThinking = false
   }
 }
 
-const cancelCommand = () => {
-  pendingCommand.value = ''
-  pendingRequestId.value = ''
+function handleCancel() {
+  // 防止 handleConfirm 的 clearPending 间接触发
+  if (isConfirming) return
+
+  chatStore.clearPending()
+  chatStore.isThinking = false
+
+  // 通知后端拒绝命令
+  api.post('/agent/chat/reject').catch(() => {})
+
+  chatStore.pushMessage({
+    role: 'system',
+    content: '命令执行已被用户拒绝',
+    timestamp: new Date().toLocaleTimeString(),
+    thought: '',
+    type: 'text',
+    agent: 'System',
+  })
 }
+
+function scrollToBottom() {
+  nextTick(() => {
+    if (messagesContainer.value) {
+      messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
+    }
+  })
+}
+
+watch(() => chatStore.messages.length, scrollToBottom)
+watch(() => chatStore.isThinking, scrollToBottom)
 
 onMounted(async () => {
   try {
-    isConnected.value = await checkConnection()
+    await checkConnection()
+    chatStore.isConnected = true
   } catch {
-    isConnected.value = false
+    chatStore.isConnected = false
   }
 })
 </script>
 
-<style lang="scss">
+<style scoped>
 .chat-container {
   display: flex;
   flex-direction: column;
   height: 100vh;
   background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  color: rgba(255, 255, 255, 0.9);
+  font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif;
 }
 
 .chat-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px 24px;
+  padding: 12px 20px;
   background: rgba(255, 255, 255, 0.05);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
 
-  h1 { color: #fff; font-size: 20px; font-weight: 600; margin: 0; }
+.chat-header h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
 
-  .header-actions {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 
-  .header-btn {
-    padding: 4px 14px;
-    border-radius: 6px;
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    background: rgba(255, 255, 255, 0.05);
-    color: rgba(255, 255, 255, 0.7);
-    transition: all 0.2s;
-    &:hover { border-color: #007bff; color: #fff; }
-  }
+.status-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #f56c6c;
+  transition: background 0.3s;
+}
 
-  .status-indicator {
-    padding: 4px 12px;
-    border-radius: 20px;
-    font-size: 12px;
-    background: #dc3545;
-    color: #fff;
-    &.online { background: #28a745; }
-  }
+.status-indicator.connected {
+  background: #67c23a;
+  box-shadow: 0 0 6px rgba(103, 194, 58, 0.5);
+}
+
+.chat-body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.chat-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .chat-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 24px;
+  padding: 20px;
   display: flex;
   flex-direction: column;
-
-  &::-webkit-scrollbar { width: 6px; }
-  &::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.05); }
-  &::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); border-radius: 3px; }
-}
-
-.message-item {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 16px;
-  max-width: 85%;
-
-  &.user-message {
-    margin-left: auto;
-    flex-direction: row-reverse;
-    .message-content { background: #007bff; }
-  }
-
-  &.system-message .message-content { background: rgba(255, 255, 255, 0.1); }
-
-  .message-avatar {
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.1);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 16px;
-    flex-shrink: 0;
-  }
-
-  .message-content {
-    flex: 1;
-    border-radius: 12px;
-    padding: 10px 14px;
-    color: #fff;
-
-    .message-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 6px;
-      font-size: 11px;
-      opacity: 0.6;
-    }
-
-    .message-body {
-      font-size: 14px;
-      line-height: 1.6;
-      p { margin: 0; }
-    }
-  }
-}
-
-.tool-output {
-  background: rgba(0, 0, 0, 0.3);
-  padding: 8px 10px;
-  border-radius: 6px;
-  font-family: 'Fira Code', monospace;
-  font-size: 12px;
-  margin: 0;
-  overflow-x: auto;
-  white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 300px;
-  overflow-y: auto;
-}
-
-.command-preview {
-  background: rgba(255, 193, 7, 0.1);
-  border: 1px solid rgba(255, 193, 7, 0.3);
-  border-radius: 12px;
-  padding: 16px;
-  margin: 0 24px 16px;
-
-  .command-warning {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: #ffc107;
-    font-size: 14px;
-    margin-bottom: 12px;
-  }
-
-  .command-text {
-    background: rgba(0, 0, 0, 0.3);
-    padding: 12px;
-    border-radius: 8px;
-    color: #fff;
-    font-family: 'Fira Code', monospace;
-    font-size: 13px;
-    margin: 0 0 12px;
-    overflow-x: auto;
-  }
-
-  .command-actions {
-    display: flex;
-    gap: 12px;
-
-    .btn {
-      padding: 8px 24px;
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: 500;
-      cursor: pointer;
-      border: none;
-      transition: all 0.2s;
-
-      &.btn-confirm { background: #28a745; color: #fff; &:hover { background: #218838; } }
-      &.btn-cancel { background: rgba(255, 255, 255, 0.1); color: #fff; &:hover { background: rgba(255, 255, 255, 0.2); } }
-    }
-  }
+  gap: 10px;
 }
 
 .thinking-indicator {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
+  gap: 10px;
+  padding: 10px 15px;
   background: rgba(255, 255, 255, 0.05);
   border-radius: 12px;
-  color: #fff;
-  font-size: 14px;
   align-self: flex-start;
-
-  .thinking-dots {
-    display: flex;
-    gap: 4px;
-    span {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #007bff;
-      animation: dotPulse 1.4s infinite ease-in-out;
-      &:nth-child(2) { animation-delay: 0.2s; }
-      &:nth-child(3) { animation-delay: 0.4s; }
-    }
-  }
 }
 
-@keyframes dotPulse {
-  0%, 80%, 100% { transform: scale(0); opacity: 0.5; }
-  40% { transform: scale(1); opacity: 1; }
+.dot-pulse {
+  width: 8px;
+  height: 8px;
+  background: #409eff;
+  border-radius: 50%;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.2); opacity: 0.5; }
 }
 
 .chat-input {
-  display: flex;
-  gap: 12px;
-  padding: 16px 24px;
+  padding: 15px 20px;
   background: rgba(255, 255, 255, 0.05);
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-
-  textarea {
-    flex: 1;
-    padding: 12px 16px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 12px;
-    background: rgba(255, 255, 255, 0.05);
-    color: #fff;
-    font-size: 14px;
-    resize: none;
-    outline: none;
-    &:focus { border-color: #007bff; }
-    &::placeholder { color: rgba(255, 255, 255, 0.5); }
-  }
-
-  .send-btn {
-    padding: 12px 32px;
-    background: #007bff;
-    color: #fff;
-    border: none;
-    border-radius: 12px;
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    align-self: flex-end;
-    &:hover:not(:disabled) { background: #0069d9; }
-    &:disabled { opacity: 0.5; cursor: not-allowed; }
-  }
+  backdrop-filter: blur(10px);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
+
+.input-wrapper {
+  display: flex;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.input-wrapper:focus-within {
+  border-color: #409eff;
+  box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.2);
+}
+
+.input-wrapper textarea {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  resize: none;
+  min-height: 24px;
+  max-height: 150px;
+  padding: 4px 0;
+  outline: none;
+}
+
+.input-wrapper textarea::placeholder {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.send-button {
+  padding: 6px 16px;
+  background: #409eff;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background 0.2s;
+  align-self: flex-end;
+}
+
+.send-button:hover:not(:disabled) {
+  background: #66b1ff;
+}
+
+.send-button:disabled {
+  background: rgba(64, 158, 255, 0.5);
+  cursor: not-allowed;
+}
+
 </style>

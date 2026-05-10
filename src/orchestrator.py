@@ -24,8 +24,8 @@ class AgentOrchestrator:
         self.context_manager = context_manager or ContextManager()
         
         # 提示词和工具注册表依然根据 policy 动态生成
-        self.prompt_manager = PromptManager(kb_search=policy.allow_kb_search)
-        self.tool_registry = ToolRegistry(kb_search=policy.allow_kb_search)
+        self.prompt_manager = PromptManager()
+        self.tool_registry = ToolRegistry()
 
     async def run_step_by_step(
         self,
@@ -156,7 +156,9 @@ class AgentOrchestrator:
         self.tool_registry.get_tool(ActionType.EXECUTE_COMMAND.value).handler = exec_handler
         self.tool_registry.get_tool(ActionType.CALL_JUDGE.value).handler = judge_handler
         if self.policy.allow_kb_search:
-            self.tool_registry.get_tool(ActionType.QUERY_KNOWLEDGE.value).handler = kb_handler
+            kb_tool = self.tool_registry.get_tool("query_knowledge")
+            if kb_tool and hasattr(kb_tool, 'handler'):
+                kb_tool.handler = kb_handler
 
     async def _run_curation_phase(self, curator_config: DockerConfig):
         """

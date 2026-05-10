@@ -1,5 +1,4 @@
 import asyncio
-import re
 from typing import Optional, Dict, Any, Callable, Awaitable
 
 from src.agent import WorkerAgent, CuratorAgent
@@ -24,109 +23,131 @@ def remove_queue(request_id: str):
     _sse_queues.pop(request_id, None)
 
 
-def _format_action_start(action_type: ActionType, action_params: Dict[str, Any]) -> str:
-    """格式化动作开始时的描述"""
-    if action_type == ActionType.EXECUTE_COMMAND:
-        cmd = action_params.get('command', '')
-        return f"正在执行命令: {cmd}"
-    elif action_type == ActionType.CALL_JUDGE:
-        answer = action_params.get('final_answer', '')
-        evidence = action_params.get('evidence_summary', '')
-        lines = ["正在调用 JudgeAgent 进行评审..."]
-        if answer:
-            lines.append(f"待评审答案: {answer}")
-        if evidence:
-            lines.append(f"证据摘要: {evidence}")
-        return "\n".join(lines)
-    elif action_type == ActionType.QUERY_KNOWLEDGE:
-        query = action_params.get('query', '')
-        return f"正在查询知识库: {query}" if query else "正在查询知识库..."
-    else:
-        return f"正在执行: {action_type.value}"
+def _make_emit_callbacks(request_id: str, tool_registry=None):
+    """创建 SSE 事件发射回调函数，使用工具自描述格式化"""
 
+    # 缓存每次工具调用的参数，供 tool_result 事件附带
+    _last_params: Dict[str, Any] = {}
 
-def _format_tool_result(tool_name: str, raw_content: str) -> str:
-    """格式化工具执行结果"""
-    if tool_name == "execute_command":
-        lines = []
-        in_stdout = False
-        for line in raw_content.split("\n"):
-            if line.startswith("EXIT_CODE:"):
-                lines.append(line)
-                in_stdout = False
-            elif line.startswith("STDOUT:"):
-                lines.append("输出:")
-                stdout = line[len("STDOUT:"):].strip()
-                if stdout:
-                    lines.append(stdout)
-                in_stdout = True
-            elif line.startswith("STDERR:"):
-                stderr = line[len("STDERR:"):].strip()
-                if stderr:
-                    lines.append(f"错误: {stderr}")
-                in_stdout = False
-            elif in_stdout:
-                lines.append(line)
-        return "\n".join(lines) if lines else raw_content
-    elif tool_name == "call_judge":
-        obs_match = re.search(r"observation='(.*?)'", raw_content)
-        action_match = re.search(r"action_type='(.*?)'", raw_content)
-        if obs_match:
-            obs = obs_match.group(1)
-            action = action_match.group(1) if action_match else ""
-            return f"评审意见: {obs}" + (f"\n处理方式: {action}" if action else "")
-        return raw_content
-    return raw_content
+    def _get_tool(tool_name: str):
+        if tool_registry:
+            return tool_registry.get_tool(tool_name)
+        return None
 
+    def _extract_command(tool_name: str, params: Dict[str, Any]) -> str:
+        """提取工具调用的关键参数用于展示"""
+        if not params:
+            return ""
+        # exec 工具：显示 command
+        if "command" in params:
+            return params["command"]
+        # 其他工具：显示所有参数的简要形式
+        parts = []
+        for k, v in params.items():
+            val = str(v)
+            if len(val) > 80:
+                val = val[:77] + "..."
+            parts.append(f"{k}: {val}")
+        return ", ".join(parts)
 
-def _make_emit_callbacks(request_id: str):
-    """创建 SSE 事件发射回调函数"""
-
-    async def emit_tool_start(agent_name: str, tool_name: str, description: str):
+    async def emit_tool_start(agent_name: str, tool_name: str, params: Dict[str, Any]):
+        nonlocal _last_params
+        _last_params = dict(params)
         queue = get_queue(request_id)
-        if queue:
-            await queue.put({
-                "event": "tool_start",
-                "data": {"agent": agent_name, "tool": tool_name, "content": description}
-            })
+        if not queue:
+            return
+        tool = _get_tool(tool_name)
+        if tool:
+            description = tool.format_start(params)
+            tool_type = tool.execution_mode
+        else:
+            description = f"正在执行: {tool_name}"
+            tool_type = "local"
+        await queue.put({
+            "event": "tool_start",
+            "data": {"agent": agent_name, "tool": tool_name, "tool_type": tool_type, "content": description}
+        })
 
     async def emit_tool_result(agent_name: str, tool_name: str, result: str):
         queue = get_queue(request_id)
-        if queue:
-            formatted = _format_tool_result(tool_name, result)
-            if formatted:
-                await queue.put({
-                    "event": "tool_result",
-                    "data": {"agent": agent_name, "tool": tool_name, "content": formatted}
-                })
+        if not queue:
+            return
+        tool = _get_tool(tool_name)
+        if tool:
+            formatted = tool.format_result(result)
+            tool_type = tool.execution_mode
+        else:
+            formatted = result
+            tool_type = "local"
+        if formatted:
+            command = _extract_command(tool_name, _last_params)
+            await queue.put({
+                "event": "tool_result",
+                "data": {
+                    "agent": agent_name, "tool": tool_name,
+                    "tool_type": tool_type, "content": formatted,
+                    "command": command,
+                }
+            })
 
-    return emit_tool_start, emit_tool_result
+    async def emit_thought(agent_name: str, thought: str):
+        queue = get_queue(request_id)
+        if queue and thought:
+            await queue.put({
+                "event": "thought",
+                "data": {"agent": agent_name, "content": thought}
+            })
+
+    return emit_tool_start, emit_tool_result, emit_thought
 
 
 class StreamingWorkerAgent(WorkerAgent):
     """支持实时回调工具执行结果的 WorkerAgent"""
-    on_tool_start: Optional[Callable[[str, str, str], Awaitable[None]]] = None
-    on_tool_result: Optional[Callable[[str, str, str], Awaitable[None]]] = None
+    on_tool_start: Optional[Callable] = None
+    on_tool_result: Optional[Callable] = None
+    on_thought: Optional[Callable] = None
 
-    async def _execute_action(self, action_type: ActionType, action_params: Dict[str, Any]) -> str:
-        agent_name = "JudgeAgent" if action_type == ActionType.CALL_JUDGE else self.name
+    async def _execute_action(self, action_type: ActionType, action_params: Dict[str, Any], tool_name: str = None) -> str:
+        exec_name = tool_name or action_type.value
+        # call_judge 工具的执行结果显示为 JudgeAgent
+        agent_name = "JudgeAgent" if exec_name == "call_judge" else self.name
+
+        # 发送当前 agent 的 thought（如果有）
+        if self.on_thought and self.last_thought:
+            await self.on_thought(self.name, self.last_thought)
+            self.last_thought = ""
+
         if self.on_tool_start:
-            await self.on_tool_start(agent_name, action_type.value, _format_action_start(action_type, action_params))
-        result = await super()._execute_action(action_type, action_params)
+            await self.on_tool_start(agent_name, exec_name, action_params)
+
+        result = await self.tools.run(exec_name, action_params)
+
         if self.on_tool_result:
-            await self.on_tool_result(agent_name, action_type.value, result)
+            await self.on_tool_result(agent_name, exec_name, result)
+
         return result
 
 
 class StreamingCuratorAgent(CuratorAgent):
     """支持实时回调工具执行结果的 CuratorAgent"""
-    on_tool_start: Optional[Callable[[str, str, str], Awaitable[None]]] = None
-    on_tool_result: Optional[Callable[[str, str, str], Awaitable[None]]] = None
+    on_tool_start: Optional[Callable] = None
+    on_tool_result: Optional[Callable] = None
+    on_thought: Optional[Callable] = None
 
-    async def _execute_action(self, action_type: ActionType, action_params: Dict[str, Any]) -> str:
+    async def _execute_action(self, action_type: ActionType, action_params: Dict[str, Any], tool_name: str = None) -> str:
+        exec_name = tool_name or action_type.value
+
+        # 发送 thought
+        if self.on_thought and self.last_thought:
+            await self.on_thought(self.name, self.last_thought)
+            self.last_thought = ""
+
         if self.on_tool_start:
-            await self.on_tool_start(self.name, action_type.value, _format_action_start(action_type, action_params))
-        result = await super()._execute_action(action_type, action_params)
+            await self.on_tool_start(self.name, exec_name, action_params)
+
+        result = await self.tools.run(exec_name, action_params)
+
         if self.on_tool_result:
-            await self.on_tool_result(self.name, action_type.value, result)
+            await self.on_tool_result(self.name, exec_name, result)
+
         return result

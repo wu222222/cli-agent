@@ -2,6 +2,9 @@ from typing import Dict, Any, Optional, Type, NamedTuple
 from dataclasses import dataclass
 from enum import Enum
 from abc import ABC, abstractmethod
+import json
+
+from pydantic import ValidationError
 
 from src.logger import get_logger
 from src.agent.context import ContextManager
@@ -33,8 +36,9 @@ class BaseAgent(ABC):
         # 核心：每个子类可以有自己的状态机定义
         self.state_machine = self._create_state_machine()
         self.state_machine.set_agent(self)
-        
+
         self.max_iterations = 15
+        self.last_thought: str = ""
 
     @abstractmethod
     def _setup_system_prompt(self) -> None:
@@ -108,11 +112,27 @@ class BaseAgent(ABC):
         """具体的 LLM 调用和解析逻辑"""
         pass
 
-    async def _execute_action(self, action_type: ActionType, action_params: Dict[str, Any]) -> str:
-        """执行action"""
-        logger.info(f"执行action: {action_type}, 参数: {action_params}")
-        # 通过工具注册表执行工具
-        result = await self.tools.execute_tool(action_type.value, action_params)
+    def _parse_action(self, response_text: str) -> Optional[LLMOutput]:
+        """从 LLM 原始响应中提取并校验 JSON 结构"""
+        try:
+            if "```json" in response_text:
+                json_str = response_text.split("```json")[1].split("```")[0].strip()
+            elif "```" in response_text:
+                json_str = response_text.split("```")[1].split("```")[0].strip()
+            else:
+                json_str = response_text.strip()
+
+            data = json.loads(json_str)
+            return LLMOutput.model_validate(data)
+        except (json.JSONDecodeError, IndexError, ValidationError) as e:
+            logger.warning(f"JSON 解析或结构校验失败: {e}")
+            return None
+
+    async def _execute_action(self, action_type: ActionType, action_params: Dict[str, Any], tool_name: Optional[str] = None) -> str:
+        """执行action，优先使用 tool_name 调用具体工具"""
+        exec_name = tool_name or action_type.value
+        logger.info(f"执行工具: {exec_name} (action: {action_type}), 参数: {action_params}")
+        result = await self.tools.run(exec_name, action_params)
         logger.info(f"工具执行结果: {result}")
         return result
 

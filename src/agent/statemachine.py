@@ -47,52 +47,57 @@ class WorkerThinkingState(State):
         """执行思考状态逻辑"""
         self.response = await self.agent._think()
 
+        # 存储 thought，供 StreamingAgent 发送 SSE thought 事件
+        self.agent.last_thought = self.response.thought or ""
+
         logger.debug(f"状态{self.state},response:{self.response}")
 
-        # 根据响应决定下一个状态
         match self.response.action_type:
             case ActionType.STOP:
-                # 先进入判断状态，再进入完成状态
                 answer = self.response.action_params.get("answer", self.response.content)
                 self.agent.context_manager.add_assistant_message(self.agent.name,self.response.content,[self.agent.name])
                 self.agent.context_manager.set_final_answer(answer)
                 return StateTransition(state=AgentState.COMPLETED)
 
             case ActionType.EXECUTE_COMMAND:
-                needs_confirm = True
-                command = self.response.action_params.get('command', '')
-                thought = self.response.thought or ''
-                if thought:
-                    prompt = f"[思考] {thought}\n\n[命令] {command}\n\n是否允许执行以上命令?"
-                else:
-                    prompt = f"是否允许执行: {command}?"
-                out_data = ThinkingToExecutingData(
-                    response=self.response,
-                    requires_confirmation=needs_confirm,
-                    confirmation_prompt=prompt
-                )
+                tool = self.agent.tools.get_tool(self.response.tool_name) if self.response.tool_name else None
+                if not tool:
+                    error_msg = f"工具 '{self.response.tool_name}' 未注册或不可用。请在工具设置页面启动对应容器，或使用 stop 动作直接告知用户。"
+                    logger.warning(error_msg)
+                    self.agent.context_manager.add_tool_result(
+                        agent_name=self.agent.name,
+                        tool_name=self.response.tool_name or "unknown",
+                        result=error_msg,
+                    )
+                    return StateTransition(
+                        state=AgentState.THINKING,
+                        data=ExecutionResultData(observation=error_msg, action_type=self.response.action_type),
+                    )
+                needs_confirm = tool.requires_confirmation
+                if needs_confirm:
+                    command = self.response.action_params.get('command', '')
+                    thought = self.response.thought or ''
+                    prompt = f"[思考] {thought}\n\n[命令] {command}\n\n是否允许执行以上命令?" if thought else f"是否允许执行: {command}?"
+                    out_data = ThinkingToExecutingData(
+                        response=self.response,
+                        confirmation_prompt=prompt
+                    )
+                    return StateTransition(state=AgentState.WAITING_CONFIRMATION, data=out_data)
                 return StateTransition(
-                    state=AgentState.WAITING_CONFIRMATION, 
-                    data=out_data
+                    state=AgentState.EXECUTING, 
+                    data=ThinkingToExecutingData(response=self.response)
                 )
 
-            case ActionType.CALL_JUDGE:
+            case ActionType.LOCAL_CALL:
                 return StateTransition(
-                    state=AgentState.EXECUTING, 
+                    state=AgentState.EXECUTING,
                     data=ThinkingToExecutingData(response=self.response)
                 )
-            
-            case ActionType.QUERY_KNOWLEDGE:
-                return StateTransition(
-                    state=AgentState.EXECUTING, 
-                    data=ThinkingToExecutingData(response=self.response)
-                )
-            
+
             case _:
-                # 3. 处理执行逻辑 (通用动作)
                 return StateTransition(
                     state=AgentState.EXECUTING, 
-                    data= ThinkingToExecutingData(response=self.response)
+                    data=ThinkingToExecutingData(response=self.response)
                 )
     
     def can_transition_to(self, new_state: AgentState, data: Optional[StateData] = None) -> bool:
@@ -127,12 +132,31 @@ class ExecutingState(State):
         """执行执行状态逻辑"""
         if self.response and self.response.action_type:
             try:
-                observation = await self.agent._execute_action(self.response.action_type, self.response.action_params)
+                tool_name = self.response.tool_name or self.response.action_type.value
+                tool = self.agent.tools.get_tool(tool_name)
+                if not tool:
+                    error_msg = f"工具 '{tool_name}' 未注册或不可用。请使用 stop 动作告知用户当前环境限制。"
+                    logger.error(error_msg)
+                    self.agent.context_manager.add_tool_result(
+                        agent_name=self.agent.name,
+                        tool_name=tool_name,
+                        result=error_msg,
+                    )
+                    return StateTransition(
+                        state=AgentState.THINKING,
+                        data=ExecutionResultData(observation=error_msg, action_type=self.response.action_type),
+                    )
+
+                observation = await self.agent._execute_action(
+                    self.response.action_type,
+                    self.response.action_params,
+                    self.response.tool_name,
+                )
                 # 添加assistant消息和工具结果到上下文
                 self.agent.context_manager.add_assistant_message(self.agent.name,self.response.content,[self.agent.name])
                 self.agent.context_manager.add_tool_result(
                     agent_name=self.agent.name,
-                    tool_name=self.response.action_type.value,
+                    tool_name=self.response.tool_name or self.response.action_type.value,
                     result=observation
                 )
                 return StateTransition(state=AgentState.THINKING, data=ExecutionResultData(observation=observation, action_type=self.response.action_type))
@@ -173,8 +197,12 @@ class WaitingConfirmationState(State):
         if not isinstance(self.data, ThinkingToExecutingData):
             return StateTransition(state=AgentState.ERROR, data=ErrorData(error_message="数据类型错误"))
 
-        # 如果不需要确认，直接进入执行
-        if not self.data.requires_confirmation:
+        # 确认需求由 tool.requires_confirmation 决定（非 ThinkingToExecutingData 字段）
+        resp = self.data.response
+        tool = self.agent.tools.get_tool(resp.tool_name) if resp.tool_name else None
+        needs_confirm = tool.requires_confirmation if tool else False
+
+        if not needs_confirm:
             return StateTransition(state=AgentState.EXECUTING, data=self.data)
 
         # 处理需要确认的情况
@@ -191,43 +219,12 @@ class WaitingConfirmationState(State):
             self.agent.context_manager.set_final_answer("操作已被用户取消")
             return StateTransition(state=AgentState.COMPLETED)
 
-        # if self.data.requires_confirmation:
-        #     confirmation_prompt = self.data.confirmation_prompt 
-        #     thought = self.data.response.thought
-        #     confirmed = self.confirmation_handler(confirmation_prompt,thought)
-        #     if confirmed:
-        #         return StateTransition(state=AgentState.EXECUTING, data=self.data)
-        #     else:
-        #         self.agent.context_manager.set_final_answer("操作已取消")
-        #         return StateTransition(state=AgentState.COMPLETED)
-
-    
     def can_transition_to(self, new_state: AgentState, data: Optional[StateData] = None) -> bool:
         if new_state == AgentState.EXECUTING:
             return True
         elif new_state in [AgentState.COMPLETED, AgentState.ERROR]:
             return True
         return False
-
-    # def confirmation_handler(self, prompt: str,thought: str = None) -> bool:
-    #     """人机确认处理器"""
-    #     print("\n" + "=" * 60)
-    #     print("🔐 安全确认")
-    #     if thought:
-    #         print(f"思考: {thought}")
-    #     print("=" * 60)
-    #     print(f"⚠️  {prompt}")
-    #     print("=" * 60)
-        
-    #     # 等待用户确认
-    #     while True:
-    #         confirm = input("\n是否确认执行？(y/n): ").lower().strip()
-    #         if confirm == 'y':
-    #             return True
-    #         elif confirm == 'n':
-    #             return False
-    #         else:
-    #             print("请输入 'y' 或 'n'")
 
 
 class CompletedState(State):
@@ -288,32 +285,22 @@ class JudgeState(State):
     
     async def execute(self, data: Optional[StateData] = None) -> StateTransition:
         self.response = await self.agent._think()
-        # 4. 根据 Judge 的 ActionType.REVIEW 结果决定 Worker 的去向
-        review_data = self.response.validate_params() # 拿到 ReviewParams 对象
+        # 存储 thought
+        self.agent.last_thought = self.response.thought or ""
+        # 根据 Judge 的 LOCAL_CALL 结果决定 Worker 的去向
+        review_data = self.response.validate_params()
 
         if review_data.is_passed:
             data = ExecutionResultData(
                 observation=f"评审通过,原因：{review_data.reason}",
-                action_type=ActionType.REVIEW,
+                action_type=ActionType.LOCAL_CALL,
             )
-            # self.agent.context_manager.add_tool_result(
-            #     agent_name=self.agent.name,
-            #     tool_name="review", 
-            #     result=f"评审通过,原因：{review_data.reason}",
-            #     receivers=[self.agent.name]
-            # )
             return StateTransition(state=AgentState.COMPLETED, data=data)
         else:
             data = ExecutionResultData(
                 observation=f"评审打回,原因：{review_data.reason}",
-                action_type=ActionType.REVIEW,
+                action_type=ActionType.LOCAL_CALL,
             )
-            # self.agent.context_manager.add_tool_result(
-            #     agent_name=self.agent.name,
-            #     tool_name="review",
-            #     result=f"评审打回,原因：{review_data.reason}",
-            #     receivers=[self.agent.name]
-            # )
             return StateTransition(state=AgentState.COMPLETED, data=data)
     
     def can_transition_to(self, new_state: AgentState, data: Optional[StateData] = None) -> bool:
@@ -340,36 +327,38 @@ class CuratorThinkingState(State):
     async def execute(self, data: Optional[StateData] = None) -> StateTransition:
         """执行知识整理者思考状态逻辑"""
         self.response = await self.agent._think()
-        
+
+        # 存储 thought，供 StreamingAgent 发送 SSE thought 事件
+        self.agent.last_thought = self.response.thought or ""
+
         logger.debug(f"状态{self.state},response:{self.response}")
 
-        # 根据响应决定下一个状态
         match self.response.action_type:
             case ActionType.STOP:
-                # 先进入判断状态，再进入完成状态
                 answer = self.response.action_params.get("answer", self.response.content)
                 self.agent.context_manager.add_assistant_message(self.agent.name,self.response.content,[self.agent.name])
                 self.agent.context_manager.set_final_answer(answer)
                 return StateTransition(state=AgentState.COMPLETED)
 
             case ActionType.EXECUTE_COMMAND:
-                needs_confirm = True
-                prompt = f"是否允许执行: {self.response.action_params.get('command')}?"
-                out_data = ThinkingToExecutingData(
-                    response=self.response,
-                    requires_confirmation=needs_confirm,
-                    confirmation_prompt=prompt
-                )
+                tool = self.agent.tools.get_tool(self.response.tool_name) if self.response.tool_name else None
+                needs_confirm = tool.requires_confirmation if tool else False
+                if needs_confirm:
+                    prompt = f"是否允许执行: {self.response.action_params.get('command')}?"
+                    out_data = ThinkingToExecutingData(
+                        response=self.response,
+                        confirmation_prompt=prompt
+                    )
+                    return StateTransition(state=AgentState.WAITING_CONFIRMATION, data=out_data)
                 return StateTransition(
-                    state=AgentState.WAITING_CONFIRMATION, 
-                    data=out_data
+                    state=AgentState.EXECUTING,
+                    data=ThinkingToExecutingData(response=self.response)
                 )
             
             case _:
-                # 3. 跳转至Error状态
                 return StateTransition(
                     state=AgentState.ERROR, 
-                    data= ErrorData(response=self.response)
+                    data=ErrorData(error_message=f"不支持的动作类型: {self.response.action_type.value}")
                 )
     
     def can_transition_to(self, new_state: AgentState, data: Optional[StateData] = None) -> bool:
@@ -396,12 +385,6 @@ class WorkerStateMachine(BaseStateMachine):
             AgentState.ERROR: ErrorState(self)
         }
         self._current_state = self._states[AgentState.IDLE]
-
-    # def get_judge_agent(self) -> BaseAgent:
-    #     if hasattr(self.agent, 'judge_agent'):
-    #         return self.agent.judge_agent
-    #     else:
-    #         return None
 
 class JudgeStateMachine(BaseStateMachine):
     """

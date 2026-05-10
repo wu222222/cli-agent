@@ -1,113 +1,116 @@
 <template>
   <div class="setup-container">
-    <div class="setup-card">
-      <div class="setup-header">
-        <h1>Safe-CLI-Agent</h1>
-        <p>配置 Docker 执行环境</p>
-      </div>
+    <header class="setup-header">
+      <h1>Docker 配置</h1>
+      <button class="back-button" @click="goToChat">← 返回对话</button>
+    </header>
 
-      <div class="setup-body">
-        <div class="form-section">
-          <h3>镜像选择</h3>
-          <div class="preset-grid">
-            <div
+    <div class="setup-content">
+      <div v-if="loading" class="loading">加载中...</div>
+      <div v-else class="config-section">
+        <div class="preset-section">
+          <h3>快速预设</h3>
+          <div class="preset-list">
+            <button
               v-for="preset in presets"
-              :key="preset.image"
-              class="preset-card"
-              :class="{ active: config.image === preset.image }"
-              @click="selectPreset(preset)"
+              :key="preset.name"
+              class="preset-button"
+              :class="{ active: selectedPreset === preset.name }"
+              @click="applyPreset(preset)"
             >
-              <div class="preset-name">{{ preset.name }}</div>
-              <div class="preset-image">{{ preset.image }}</div>
-              <div class="preset-desc">{{ preset.description }}</div>
-            </div>
+              <span class="preset-name">{{ preset.name }}</span>
+              <span class="preset-desc">{{ preset.description }}</span>
+            </button>
           </div>
+        </div>
+
+        <div class="form-section">
           <div class="form-group">
-            <label>自定义镜像</label>
-            <input v-model="config.image" type="text" placeholder="alpine:latest" />
+            <label>Docker 镜像</label>
+            <input v-model="form.image" placeholder="alpine:latest" />
           </div>
-        </div>
 
-        <div class="form-section">
-          <h3>容器配置</h3>
-          <div class="form-row">
-            <div class="form-group">
-              <label>容器名称</label>
-              <input v-model="config.container_name" type="text" placeholder="cli_agent_sandbox" />
-            </div>
-            <div class="form-group">
-              <label>网络模式</label>
-              <select v-model="config.network">
-                <option value="none">无网络 (none)</option>
-                <option value="bridge">桥接 (bridge)</option>
-                <option value="host">主机 (host)</option>
-              </select>
-            </div>
+          <div class="form-group">
+            <label>容器名称</label>
+            <input v-model="form.container_name" placeholder="cli_agent_sandbox" />
           </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>内存限制</label>
-              <select v-model="config.memory_limit">
-                <option value="256m">256 MB</option>
-                <option value="512m">512 MB</option>
-                <option value="1g">1 GB</option>
-                <option value="2g">2 GB</option>
-                <option value="4g">4 GB</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>命令超时 (秒)</label>
-              <input v-model.number="config.timeout" type="number" min="5" max="300" />
-            </div>
-          </div>
-        </div>
 
-        <div class="form-section">
-          <h3>存储配置</h3>
-          <div class="form-row">
-            <div class="form-group">
-              <label class="checkbox-label">
-                <input v-model="config.use_host_workspace" type="checkbox" />
-                <span>挂载宿主机工作目录</span>
-              </label>
-            </div>
-            <div class="form-group">
-              <label class="checkbox-label">
-                <input v-model="config.use_knowledge_base" type="checkbox" />
-                <span>挂载知识库目录</span>
-              </label>
-            </div>
+          <div class="form-group">
+            <label>网络模式</label>
+            <select v-model="form.network">
+              <option value="none">无网络</option>
+              <option value="bridge">桥接网络</option>
+              <option value="host">主机网络</option>
+            </select>
           </div>
-          <div class="form-group" v-if="config.use_knowledge_base">
-            <label>知识库权限</label>
-            <select v-model="config.kb_mode">
-              <option value="ro">只读 (ro)</option>
-              <option value="rw">读写 (rw)</option>
+
+          <div class="form-group">
+            <label>内存限制</label>
+            <input v-model="form.memory_limit" placeholder="512m" />
+          </div>
+
+          <div class="form-group">
+            <label>超时时间 (秒)</label>
+            <input v-model.number="form.timeout" type="number" min="1" max="300" />
+          </div>
+
+          <div class="form-group checkbox-group">
+            <label>
+              <input type="checkbox" v-model="form.use_host_workspace" />
+              挂载宿主机工作目录
+            </label>
+          </div>
+
+          <div class="form-group checkbox-group">
+            <label>
+              <input type="checkbox" v-model="form.use_knowledge_base" />
+              启用知识库
+            </label>
+          </div>
+
+          <div class="form-group" v-if="form.use_knowledge_base">
+            <label>知识库模式</label>
+            <select v-model="form.kb_mode">
+              <option value="ro">只读</option>
+              <option value="rw">读写</option>
             </select>
           </div>
         </div>
+
+        <div class="actions">
+          <button class="save-button" @click="saveConfig" :disabled="saving">
+            {{ saving ? '保存中...' : '保存配置' }}
+          </button>
+          <span v-if="saveSuccess" class="success-hint">✓ 已保存</span>
+          <span v-if="saveError" class="error-hint">{{ saveError }}</span>
+        </div>
       </div>
 
-      <div class="setup-footer">
-        <button class="btn btn-primary" @click="submitConfig" :disabled="submitting">
-          {{ submitting ? '配置中...' : '开始使用' }}
-        </button>
+      <div class="plugin-section">
+        <h3>插件管理</h3>
+        <PluginPanel />
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getDockerConfig, updateDockerConfig } from '@/api/config'
 import type { DockerPreset, DockerConfigForm } from '@/types'
+import PluginPanel from '@/components/PluginPanel.vue'
 
 const router = useRouter()
-const presets = ref<DockerPreset[]>([])
-const submitting = ref(false)
 
-const config = reactive<DockerConfigForm>({
+const loading = ref(true)
+const saving = ref(false)
+const saveSuccess = ref(false)
+const saveError = ref('')
+const selectedPreset = ref('')
+const presets = ref<DockerPreset[]>([])
+
+const form = ref<DockerConfigForm>({
   image: 'alpine:latest',
   container_name: 'cli_agent_sandbox',
   network: 'none',
@@ -115,216 +118,244 @@ const config = reactive<DockerConfigForm>({
   timeout: 30,
   use_host_workspace: false,
   use_knowledge_base: true,
-  kb_mode: 'ro',
+  kb_mode: 'ro'
 })
 
-const selectPreset = (preset: DockerPreset) => {
-  config.image = preset.image
+function goToChat() {
+  router.push('/')
 }
 
-const submitConfig = async () => {
-  submitting.value = true
-  try {
-    await updateDockerConfig(config)
-    router.push('/')
-  } catch (e) {
-    alert('配置失败: ' + (e instanceof Error ? e.message : '未知错误'))
-  } finally {
-    submitting.value = false
-  }
+function applyPreset(preset: DockerPreset) {
+  selectedPreset.value = preset.name
+  form.value.image = preset.image
 }
 
-onMounted(async () => {
+async function loadConfig() {
   try {
     const data = await getDockerConfig()
     presets.value = data.presets
-    Object.assign(config, data.current)
-  } catch {
-    // 使用默认值
+    if (data.current) {
+      form.value = { ...form.value, ...data.current }
+    }
+  } catch (error) {
+    console.error('Failed to load config:', error)
+  } finally {
+    loading.value = false
   }
+}
+
+async function saveConfig() {
+  saving.value = true
+  saveSuccess.value = false
+  saveError.value = ''
+
+  try {
+    await updateDockerConfig(form.value)
+    saveSuccess.value = true
+    setTimeout(() => { saveSuccess.value = false }, 2000)
+  } catch (error: unknown) {
+    const errMsg = error instanceof Error ? error.message : '保存失败'
+    saveError.value = errMsg
+    setTimeout(() => { saveError.value = '' }, 3000)
+  } finally {
+    saving.value = false
+  }
+}
+
+onMounted(() => {
+  loadConfig()
 })
 </script>
 
-<style lang="scss">
+<style scoped>
 .setup-container {
-  height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  min-height: 100vh;
   background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-  padding: 24px;
-}
-
-.setup-card {
-  width: 100%;
-  max-width: 640px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
-  overflow: hidden;
+  color: rgba(255, 255, 255, 0.9);
+  font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  padding: 20px;
 }
 
 .setup-header {
-  text-align: center;
-  padding: 32px 24px 24px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-
-  h1 {
-    color: #fff;
-    font-size: 24px;
-    font-weight: 700;
-    margin: 0 0 8px;
-  }
-
-  p {
-    color: rgba(255, 255, 255, 0.6);
-    font-size: 14px;
-    margin: 0;
-  }
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 30px;
 }
 
-.setup-body {
-  padding: 24px;
-  max-height: 60vh;
-  overflow-y: auto;
+.setup-header h1 {
+  margin: 0;
+  font-size: 24px;
+}
 
-  &::-webkit-scrollbar { width: 6px; }
-  &::-webkit-scrollbar-track { background: transparent; }
-  &::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); border-radius: 3px; }
+.back-button {
+  padding: 8px 16px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  color: inherit;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.back-button:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.setup-content {
+  max-width: 600px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.loading {
+  text-align: center;
+  padding: 40px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.config-section,
+.plugin-section {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  padding: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.config-section h3,
+.plugin-section h3 {
+  margin: 0 0 16px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.preset-section {
+  margin-bottom: 24px;
+}
+
+.preset-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.preset-button {
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: inherit;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: left;
+}
+
+.preset-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.preset-button.active {
+  border-color: #409eff;
+  background: rgba(64, 158, 255, 0.1);
+}
+
+.preset-name {
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.preset-desc {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-top: 4px;
 }
 
 .form-section {
-  margin-bottom: 24px;
-
-  &:last-child { margin-bottom: 0; }
-
-  h3 {
-    color: #fff;
-    font-size: 15px;
-    font-weight: 600;
-    margin: 0 0 12px;
-    padding-bottom: 8px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  }
-}
-
-.preset-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
-  margin-bottom: 16px;
-}
-
-.preset-card {
-  padding: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 10px;
-  cursor: pointer;
-  transition: all 0.2s;
-
-  &:hover { border-color: rgba(255, 255, 255, 0.3); }
-
-  &.active {
-    border-color: #007bff;
-    background: rgba(0, 123, 255, 0.1);
-  }
-
-  .preset-name {
-    color: #fff;
-    font-size: 14px;
-    font-weight: 600;
-  }
-
-  .preset-image {
-    color: rgba(255, 255, 255, 0.5);
-    font-size: 11px;
-    font-family: 'Fira Code', monospace;
-    margin-top: 2px;
-  }
-
-  .preset-desc {
-    color: rgba(255, 255, 255, 0.5);
-    font-size: 12px;
-    margin-top: 4px;
-  }
-}
-
-.form-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .form-group {
-  margin-bottom: 14px;
-
-  label {
-    display: block;
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 13px;
-    margin-bottom: 6px;
-  }
-
-  input[type="text"],
-  input[type="number"],
-  select {
-    width: 100%;
-    padding: 9px 12px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.05);
-    color: #fff;
-    font-size: 13px;
-    outline: none;
-    transition: border-color 0.2s;
-
-    &:focus { border-color: #007bff; }
-    &::placeholder { color: rgba(255, 255, 255, 0.3); }
-  }
-
-  .checkbox-label {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    cursor: pointer;
-    padding-top: 8px;
-
-    input[type="checkbox"] {
-      width: 16px;
-      height: 16px;
-      cursor: pointer;
-      accent-color: #007bff;
-    }
-
-    span {
-      color: #fff;
-      font-size: 13px;
-    }
-  }
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
-.setup-footer {
-  padding: 20px 24px;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-  text-align: center;
+.form-group label {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.7);
+}
 
-  .btn {
-    width: 100%;
-    padding: 12px;
-    border: none;
-    border-radius: 10px;
-    font-size: 15px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
+.form-group input,
+.form-group select {
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  color: inherit;
+  font-size: 14px;
+}
 
-    &.btn-primary {
-      background: #007bff;
-      color: #fff;
+.form-group input:focus,
+.form-group select:focus {
+  outline: none;
+  border-color: #409eff;
+  box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.2);
+}
 
-      &:hover:not(:disabled) { background: #0069d9; }
-      &:disabled { opacity: 0.5; cursor: not-allowed; }
-    }
-  }
+.checkbox-group label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.checkbox-group input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.save-button {
+  padding: 10px 24px;
+  background: #409eff;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background 0.2s;
+}
+
+.save-button:hover:not(:disabled) {
+  background: #66b1ff;
+}
+
+.save-button:disabled {
+  background: rgba(64, 158, 255, 0.5);
+  cursor: not-allowed;
+}
+
+.success-hint {
+  color: #67c23a;
+  font-size: 13px;
+}
+
+.error-hint {
+  color: #f56c6c;
+  font-size: 13px;
 }
 </style>

@@ -5,6 +5,7 @@ from typing import Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 
 from src.logger import get_logger
+from .client import DockerClientFactory
 
 logger = get_logger(__name__)
 
@@ -45,8 +46,8 @@ class DockerExecutor:
 
     def _initialize_docker(self) -> None:
         try:
-            self.client = docker.from_env()
-            logger.info(f"Docker 客户端初始化成功, image: {self.config.image}")
+            self.client = DockerClientFactory.get()
+            logger.info(f"Docker 客户端就绪, image: {self.config.image}")
         except docker.errors.DockerException as e:
             logger.error(f"Docker 初始化失败: {e}")
             logger.warning("Docker 守护进程未启动或无法连接")
@@ -189,6 +190,105 @@ class DockerExecutor:
 
     def close(self) -> None:
         self.stop_container()
+        if self.client:
+            self.client.close()
+            self.client = None
+
+
+class PluginContainerManager:
+    """管理插件容器的生命周期（持久化 daemon 模式）"""
+
+    def __init__(self):
+        self.client = None
+        self._containers: Dict[str, Any] = {}
+        try:
+            self.client = DockerClientFactory.get()
+        except Exception as e:
+            logger.error(f"PluginContainerManager Docker 初始化失败: {e}")
+
+    def is_available(self) -> bool:
+        return self.client is not None
+
+    def ensure_running(self, container_name: str, image: str = "", volumes: Optional[Dict[str, Dict[str, str]]] = None) -> bool:
+        """确保插件容器在后台运行
+        
+        Args:
+            container_name: 容器名称
+            image: 容器镜像
+            volumes: 卷挂载配置，格式: {host_path: {"bind": container_path, "mode": "ro/rw"}}
+        """
+        if not self.is_available():
+            logger.error("Docker 不可用，无法管理插件容器")
+            return False
+
+        try:
+            # 检查容器是否已存在
+            try:
+                container = self.client.containers.get(container_name)
+                if container.status == 'running':
+                    self._containers[container_name] = container
+                    logger.info(f"插件容器已在运行: {container_name}")
+                    return True
+                else:
+                    # 容器存在但未运行，启动它
+                    container.start()
+                    self._containers[container_name] = container
+                    logger.info(f"插件容器已启动: {container_name}")
+                    return True
+            except docker.errors.NotFound:
+                pass
+
+            # 容器不存在，创建并启动
+            if not image:
+                logger.error(f"插件容器 '{container_name}' 不存在且未指定镜像")
+                return False
+
+            container = self.client.containers.run(
+                image,
+                name=container_name,
+                detach=True,
+                tty=True,
+                network="none",  # 安全：零网络暴露
+                volumes=volumes or {},
+                command="sh -c 'tail -f /dev/null'"
+            )
+            self._containers[container_name] = container
+            logger.info(f"插件容器创建并启动: {container_name} (image: {image})")
+            return True
+
+        except Exception as e:
+            logger.error(f"确保插件容器运行失败: {e}")
+            return False
+
+    def get_container(self, container_name: str):
+        """获取已运行的容器"""
+        if container_name in self._containers:
+            return self._containers[container_name]
+
+        # 尝试从 Docker 获取
+        if self.is_available():
+            try:
+                container = self.client.containers.get(container_name)
+                if container.status == 'running':
+                    self._containers[container_name] = container
+                    return container
+            except docker.errors.NotFound:
+                pass
+
+        return None
+
+    def stop_all(self) -> None:
+        """停止所有管理的插件容器"""
+        for name, container in self._containers.items():
+            try:
+                container.stop(timeout=5)
+                logger.info(f"插件容器已停止: {name}")
+            except Exception as e:
+                logger.warning(f"停止插件容器失败: {name} ({e})")
+        self._containers.clear()
+
+    def close(self) -> None:
+        self.stop_all()
         if self.client:
             self.client.close()
             self.client = None

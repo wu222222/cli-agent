@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 
 
 class ChatRequest(BaseModel):
@@ -23,23 +23,22 @@ class HealthResponse(BaseModel):
     status: str = "healthy"
 
 
-class DockerPreset(BaseModel):
+class PluginInfo(BaseModel):
     name: str
-    image: str
     description: str
+    tool_type: str
+    container_name: str = ""
+    status: str = "unknown"
+    bound_action: Optional[str] = None
+    requires_confirmation: bool = False
+    mount_dirs: List[str] = []
+    parameters: Optional[Dict[str, Any]] = None
+    required_params: Optional[List[str]] = None
+    # 预设相关字段
+    category: str = "other"
+    icon: str = "default"
 
 
-class DockerConfigRequest(BaseModel):
-    image: str = "alpine:latest"
-    container_name: str = "cli_agent_sandbox"
-    network: str = "none"
-    memory_limit: str = "512m"
-    timeout: int = 30
-    use_host_workspace: bool = False
-    use_knowledge_base: bool = True
-    kb_mode: str = "ro"
-
-
-class DockerConfigResponse(BaseModel):
-    presets: List[DockerPreset]
-    current: DockerConfigRequest
+class PluginActionResponse(BaseModel):
+    success: bool
+    message: str
