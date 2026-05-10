@@ -25,38 +25,54 @@
   - **CompletedState**：完成状态
   - **ErrorState**：错误状态
 
-### C. Docker 执行沙盒 (Docker Executor)
-- **隔离机制**：所有的 Shell 指令均在独立的 Docker 容器中运行。
+### C. 插件容器系统 (Plugin Container System)
+- **架构**：移除默认沙盒容器，改为插件化容器管理。用户通过工具设置页面按需启动/停止容器。
+- **三层工具架构**：
+  - **LocalTool**：本地函数调用（如 call_judge），在进程内执行。
+  - **ExecContainerPlugin**：Docker 容器内执行命令（如 mylab、alpine_shell），通过 `docker exec` 运行。
+  - **NetworkContainerPlugin**：网络服务调用（预留），通过 HTTP API 调用外部服务。
 - **生命周期管理**：
-  - 启动时创建临时容器（如基于 alpine 或 python:slim）。
-  - 运行时通过 docker exec 传递指令。
-  - 退出时强制销毁容器，确保"无迹寻踪"。
-- **权限限制**：容器默认禁用 --privileged 模式，限制 CPU 与内存配额，且使用非 root 用户执行。
+  - 容器默认不自动启动，用户在工具设置页面手动启动。
+  - 保存工具配置时自动启动已勾选的 exec 容器。
+  - 支持挂载目录配置（mount_dirs），如 alpine 默认挂载 `./workspace:/workspace`。
+- **权限限制**：容器默认禁用 --privileged 模式，限制 CPU 与内存配额，且使用 --network none 隔离。
 
 ### D. 人机确认拦截层 (HITL - Human-in-the-loop)
 - 作为"物理防火墙"，在 LLM 发出工具执行请求与实际调用 Docker API 之间建立拦截机制。
-- 展示生成的代码/指令，等待用户显式授权。
-- 实现了交互式的确认界面，确保用户对执行的命令有完全的控制权。
+- **按工具配置**：每个 exec 工具独立配置 `requires_confirmation`（在 plugins.yaml 中设置）。
+- **确认对话框**：弹出 ConfirmDialog 组件，展示 Agent 的思考过程（thought）和待执行命令（command）。
+- **拒绝机制**：用户可点"拒绝"终止命令，后端通过 `/agent/chat/reject` 端点清理挂起的 Agent。
 
 ### E. 工具管理系统 (Tool Management)
-- **工具注册**：支持动态注册和管理工具。
+- **工具注册**：支持 YAML 配置文件（config/plugins.yaml）动态加载插件，也支持代码中注册 LocalTool。
+- **自描述格式化**：每个工具实现 `format_start()` 和 `format_result()` 方法，SSE 事件自动格式化展示。
 - **参数验证**：使用 Pydantic 模型进行参数验证，确保工具调用的正确性。
-- **异步执行**：支持同步和异步工具执行。
-- **默认工具**：
-  - **EXECUTE_COMMAND**：在 Docker 容器中执行 Shell 命令。
-  - **CALL_JUDGE**：调用 JudgeAgent 进行结果评审。
-  - **QUERY_KNOWLEDGE**：查询知识库（可选）。
-  - **REVIEW**：JudgeAgent 专用的评审工具。
+- **ActionType 路由**：三种 ActionType（EXECUTE_COMMAND、LOCAL_CALL、STOP）用于状态机路由，具体工具名（mylab、call_judge 等）通过 `tool_name` 字段指定。
+- **内置工具**：
+  - **call_judge**：调用 JudgeAgent 进行结果评审（LocalTool，绑定 LOCAL_CALL）。
+- **插件工具**（通过 plugins.yaml 配置）：
+  - **mylab**：自定义实验环境容器。
+  - **alpine_shell**：Alpine Linux 轻量级 shell。
+  - **grep_knowledge**：知识库查询容器。
+  - **search**：SearXNG 搜索引擎容器。
 
 ## 3. 工作流逻辑 (Workflow)
 
-1. **用户输入 (Input)**：用户在终端输入自然语言需求（例如："找出当前目录下最大的 5 个文件"）。
-2. **推理 (Think)**：WorkerAgent 分析需求，决定调用 execute_command 工具，并生成对应的 Shell 脚本（如 `du -ah . | sort -rh | head -n 5`）。
-3. **拦截 (Intercept)**：系统捕获到 Tool Call，解析参数并在控制台高亮显示，等待用户确认。
-4. **执行 (Act)**：用户确认后，指令被发送至 Docker 容器执行。
-5. **反馈 (Observe)**：捕获容器的标准输出 (stdout) 和错误输出 (stderr)，将其反馈给 LLM。
-6. **评审 (Review)**：WorkerAgent 调用 JudgeAgent 对执行结果进行评审，确保结果的准确性和可靠性。
-7. **总结 (Output)**：WorkerAgent 根据执行结果和评审意见生成人类可读的最终回答。
+1. **用户输入 (Input)**：用户在聊天界面输入自然语言需求（例如："找出当前目录下最大的 5 个文件"）。
+2. **推理 (Think)**：WorkerAgent 调用 LLM 分析需求，决定调用哪个工具（如 mylab），生成命令参数。Thought 通过 SSE 实时推送到前端显示为 💭 气泡。
+3. **拦截 (Intercept)**：如果工具的 `requires_confirmation` 为 true，系统弹出确认对话框，展示 Agent 思考过程和待执行命令。
+4. **执行 (Act)**：用户确认后，指令被发送至对应容器执行。若用户拒绝，后端清理挂起的 Agent。
+5. **反馈 (Observe)**：捕获容器的 stdout/stderr，通过 SSE `tool_result` 事件推送到前端，显示命令和输出。
+6. **评审 (Review)**：WorkerAgent 调用 call_judge 工具，JudgeAgent 对结果进行评审，其思考过程附带在评审结果中返回。
+7. **总结 (Output)**：WorkerAgent 根据执行结果和评审意见生成最终回答，通过 SSE `final` 事件推送。
+
+### SSE 事件类型
+- `thought`：Agent 思考过程（含 agent 名称和 thought 内容）
+- `tool_start`：工具开始执行（含 tool_name、tool_type、params）
+- `tool_result`：工具执行结果（含 tool_name、command、formatted content）
+- `confirm`：等待用户确认（含 thought、command、agent）
+- `final`：任务完成（含最终回答）
+- `error`：执行错误
 
 ## 4. 技术栈 (Technical Stack)
 
@@ -85,40 +101,44 @@
 
 ## 6. 扩展方向 (Future Scaling)
 
-- **多容器协同**：为不同的任务（如 Node.js 开发 vs. Python 数据分析）启动预装不同环境的容器镜像。
+- **多容器协同**：为不同的任务启动预装不同环境的容器镜像（已通过 plugins.yaml 实现）。
 - **文件系统快照**：支持在执行危险操作前对容器进行快照，以便随时回滚。
 - **知识库增强**：扩展 CuratorAgent 的能力，支持更复杂的知识管理和检索功能。
 - **多Agent协作**：实现更复杂的多Agent协作模式，解决更复杂的任务。
-- **实时消息推送**：支持 WebSocket 实时消息推送，提升用户体验。
+- **实时流式推送**：已通过 SSE 实现 thought/tool_result/confirm/final 事件的实时推送。
 - **用户权限管理**：添加用户认证和权限控制功能。
+- **NetworkContainerPlugin**：完善网络服务调用工具类型，支持 HTTP API 插件。
 
 ## 7. 实现细节 (Implementation Details)
 
 ### 核心类结构
 
-- **BaseAgent**：所有 Agent 的基类，定义了通用的接口和方法。
-- **WorkerAgent**：工作代理，负责执行实际的任务。
-- **JudgeAgent**：评审代理，负责检查 Worker 的任务完成质量。
+- **BaseAgent**：所有 Agent 的基类，定义了通用接口（含 `last_thought` 存储思考过程）。
+- **WorkerAgent**：工作代理，负责执行实际的任务，支持 `tool_names` 配置可用工具列表。
+- **JudgeAgent**：评审代理，负责检查 Worker 的任务完成质量，输出 PASS/FAIL 及原因。
 - **CuratorAgent**：知识整理代理，负责管理知识库。
+- **StreamingWorkerAgent / StreamingCuratorAgent**：支持 SSE 实时回调的 Agent 子类，发送 thought/tool_start/tool_result 事件。
 - **BaseStateMachine**：状态机基类，管理 Agent 的状态流转。
 - **ContextManager**：上下文管理器，管理消息和状态追踪。
-- **PromptManager**：提示词管理器，生成不同角色的系统提示词。
-- **ToolRegistry**：工具注册表，管理和执行工具。
+- **PromptManager**：提示词管理器，动态生成不同角色的系统提示词（含工具文档和 Schema）。
+- **Tool / LocalTool / ExecContainerPlugin**：三层工具体系，支持自描述格式化和参数验证。
+- **ToolRegistry**：工具注册表，支持 YAML 加载、按名称查找（大小写不敏感）、ActionType 解析。
 
 ### 状态流转
 
-1. **WorkerAgent**：Idle → Thinking → WaitingConfirmation → Executing → Thinking → CallJudge → Completed
+1. **WorkerAgent**：Idle → Thinking → [WaitingConfirmation →] Executing → Thinking → ... → Completed
 2. **JudgeAgent**：Idle → Thinking → Completed
-3. **CuratorAgent**：Idle → Thinking → Executing → Completed
+3. **CuratorAgent**：Idle → Thinking → [WaitingConfirmation →] Executing → Thinking → ... → Completed
 
 ### 工具执行流程
 
-1. WorkerAgent 生成工具调用请求
-2. 系统检查是否需要用户确认
-3. 如果需要确认，显示确认界面等待用户输入
-4. 用户确认后，调用对应的工具执行操作
-5. 工具执行完成后，将结果返回给 WorkerAgent
-6. WorkerAgent 根据执行结果决定下一步操作
+1. WorkerAgent 调用 LLM 生成工具调用请求（type + tool_name + parameters）
+2. 状态机根据 ActionType 路由：EXECUTE_COMMAND → 查找 exec 工具，LOCAL_CALL → 查找 local 工具
+3. StreamingAgent 在执行前发送 `thought` SSE 事件（展示 Agent 思考过程）
+4. 系统检查工具的 `requires_confirmation`，如需确认则进入 WaitingConfirmation 状态
+5. 用户确认后，调用工具的 `run()` 方法执行
+6. 工具执行结果通过 `tool_result` SSE 事件推送（含 command 参数）
+7. WorkerAgent 根据执行结果继续推理或调用 call_judge 评审
 
 ### 安全机制
 
@@ -161,50 +181,53 @@
 
 ```
 ├── src/
-│   ├── agent/            # Agent 相关代码
-│   │   ├── __init__.py
-│   │   ├── agent.py      # Agent 实现
-│   │   ├── base.py       # 基类定义
-│   │   ├── context.py    # 上下文管理
-│   │   ├── prompt.py     # 提示词管理
-│   │   ├── tools.py      # 工具管理
-│   │   ├── statemachine.py # 状态机实现
-│   │   └── types.py      # 类型定义
-│   ├── api/              # FastAPI 后端 API
-│   │   └── main.py       # API 入口
-│   ├── llm/              # LLM 相关代码
-│   │   ├── __init__.py
-│   │   └── client.py     # LLM 客户端
-│   ├── executor/         # Docker 执行器
-│   │   ├── __init__.py
-│   │   └── docker.py     # Docker 执行逻辑
-│   ├── logger/           # 日志系统
-│   │   ├── __init__.py
-│   │   └── logger.py     # 日志配置
-│   └── main.py           # 主入口
-├── frontend/             # Vue 3 前端应用
+│   ├── agent/                # Agent 核心逻辑
+│   │   ├── agent.py          # Worker/Judge/Curator Agent 实现
+│   │   ├── base.py           # Agent 基类（含 last_thought）
+│   │   ├── context.py        # 上下文管理器
+│   │   ├── prompt.py         # Prompt 管理器（动态 Schema 生成）
+│   │   ├── tools.py          # 工具体系（Tool/LocalTool/ExecContainerPlugin/ToolRegistry）
+│   │   ├── statemachine.py   # 状态机实现（Worker/Judge/Curator）
+│   │   └── types.py          # 类型定义（ActionType/AgentState/AgentResponse 等）
+│   ├── api/                  # FastAPI 后端 API
+│   │   ├── main.py           # App 入口
+│   │   ├── models.py         # Pydantic 请求/响应模型
+│   │   ├── routes.py         # 路由处理器（chat/plugins/agent/tools）
+│   │   ├── services.py       # 业务逻辑、组件初始化
+│   │   └── streaming.py      # SSE 流式 Agent（StreamingWorkerAgent/StreamingCuratorAgent）
+│   ├── executor/             # Docker 执行器
+│   │   ├── docker.py         # DockerExecutor + PluginContainerManager
+│   │   └── client.py         # DockerClientFactory
+│   ├── llm/                  # LLM 客户端
+│   │   └── client.py         # 异步 LLMClient
+│   └── logger/               # 日志系统
+├── config/
+│   └── plugins.yaml          # 插件容器配置（mylab/alpine_shell/grep_knowledge/search）
+├── frontend/                 # Vue 3 前端应用
 │   ├── src/
-│   │   ├── views/        # 页面视图
-│   │   │   ├── ChatView.vue      # 聊天页面
-│   │   │   ├── HistoryView.vue   # 历史记录页面
-│   │   │   └── SettingsView.vue  # 设置页面
-│   │   ├── api/          # API 调用封装
-│   │   │   └── agent.ts  # Agent API 调用
-│   │   ├── types/        # TypeScript 类型定义
-│   │   │   └── index.ts  # 类型定义文件
-│   │   ├── router/       # 路由配置
-│   │   │   └── index.ts  # 路由配置文件
-│   │   ├── App.vue       # 根组件
-│   │   └── main.ts       # 前端入口
-│   ├── index.html        # HTML 模板
-│   ├── vite.config.ts    # Vite 配置
-│   ├── tsconfig.json     # TypeScript 配置
-│   └── package.json      # 前端依赖配置
-├── examples/            # 示例代码
-├── .env.example         # 环境变量示例
-├── .gitignore           # Git 忽略文件
-├── PROJECT.md           # 项目技术架构文档
-└── environment.yml      # Conda 环境配置
+│   │   ├── views/            # 页面视图
+│   │   │   ├── ChatView.vue          # 聊天页面（含确认对话框）
+│   │   │   ├── ToolsView.vue         # 工具设置页面（勾选工具、启停容器）
+│   │   │   ├── HistoryView.vue       # 历史记录页面
+│   │   │   └── SettingsView.vue      # 设置页面
+│   │   ├── components/       # 组件
+│   │   │   ├── MessageBubble.vue     # 消息气泡（text/thought/tool_result）
+│   │   │   ├── ConfirmDialog.vue     # 命令确认对话框
+│   │   │   └── ToolCard.vue          # 工具卡片组件
+│   │   ├── composables/      # 组合式函数
+│   │   │   └── useSSE.ts             # SSE 事件处理（简洁模式）
+│   │   ├── stores/           # 状态管理
+│   │   │   ├── chat.ts               # 聊天状态（messages/pending）
+│   │   │   └── plugin.ts             # 插件状态
+│   │   ├── api/              # API 客户端
+│   │   │   ├── agent.ts              # Agent API（chat/stream/curator）
+│   │   │   └── config.ts             # 插件 API（plugins/start/stop）
+│   │   └── types/            # TypeScript 类型定义
+│   └── package.json
+├── knowledge_base/           # 知识库目录
+├── workspace/                # 工作目录（alpine_shell 默认挂载）
+├── .env.example              # 环境变量示例
+└── environment.yml           # Conda 环境配置
 ```
 
 ## 10. 总结
