@@ -190,11 +190,29 @@ JSON 格式规范：
 {self.json_principle}
 """
 
-    def _build_curator_prompt(self) -> str:
+    def _build_curator_prompt(self, tool_registry=None, tool_names: list = None) -> str:
         allowed = [ActionType.EXECUTE_COMMAND, ActionType.LOCAL_CALL, ActionType.STOP]
-        
+
+        plugin_docs = ""
+        tool_name_list = ""
+        if tool_registry and tool_names:
+            plugin_docs = self._generate_tool_docs_for_agent(tool_registry, tool_names)
+            names = list(tool_names)
+            tool_name_list = f"""## 可用工具名 (tool_name)
+**必填**。请在 tool_name 字段指定具体工具。
+可选值: {', '.join(names)}"""
+        elif tool_registry:
+            names = [n for n in tool_registry.list_tools() if n != "execute_command"]
+            tool_name_list = f"""## 可用工具名 (tool_name)
+**必填**。请在 tool_name 字段指定具体工具。
+可选值: {', '.join(names)}"""
+
         return f"""你是一个高级知识管理专家（Knowledge Curator），负责维护系统的长期记忆。
 你的任务是：分析 Worker 的执行历史，提取有价值的"经验-教训"，并以原子化的方式更新到知识库（KB）中。
+
+{plugin_docs}
+
+{tool_name_list}
 
 ## 知识整理逻辑
 1. **识别关键信息**：
@@ -205,12 +223,12 @@ JSON 格式规范：
 2. **原子化更新原则**：
    - **不要覆盖整个文件**：如果文件已存在，请尝试使用 `cat` 读取内容，分析后使用 `printf` 重定向或追加模式进行合并。
    - **维护 Markdown 锚点**：确保每个知识点包含 ## TOPIC, ## TAGS, ## ERROR, ## SOLUTION, ## EXAMPLE。
-   - 如果 execute_command 返回的 EXIT_CODE 是 0，可以默认写入成功，减少一次读取操作。
+   - 如果命令返回的 EXIT_CODE 是 0，可以默认写入成功，减少一次读取操作。
 
 3. **全英文规范**：
    - 为了提高 grep 检索效率并节省上下文，知识库内容必须使用专业、简洁的英文编写。
 
-## 目录映射规范 
+## 目录映射规范
 - `/linux/`: Core Linux commands, shell syntax, and filesystem best practices.
 - `/security/`: Security auditing, enumeration techniques, and privilege escalation patterns.
 - `/troubleshoot/`: Common exit codes, error messages, and recovery steps.

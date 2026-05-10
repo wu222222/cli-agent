@@ -86,6 +86,14 @@ class WorkerAgent(BaseAgent):
             # 未注册的错误在 ToolRegistry.run() 中处理
             tool_name = effective_tool
 
+            # 强制限制：如果配置了 tool_names，LLM 选择的工具必须在列表内
+            # 但 STOP 动作不受限制（LLM 可以随时选择停止）
+            if self._tool_names and action_type != ActionType.STOP and tool_name not in self._tool_names:
+                logger.warning(f"WorkerAgent LLM 选择了 '{tool_name}'，但仅允许 {self._tool_names}，设为 STOP")
+                action_params = {"answer": f"当前可用工具为 {self._tool_names}，无法使用 '{tool_name}'。请告知用户。"}
+                action_type = ActionType.STOP
+                tool_name = "stop"
+
             agent_resp = AgentResponse(
                 thought=llm_output.thought,
                 content=response_text,
@@ -183,11 +191,16 @@ class CuratorAgent(BaseAgent):
         context_manager: Optional[ContextManager] = None,
         prompt_manager: Optional[PromptManager] = None,
         tool_registry: Optional[ToolRegistry] = None,
+        tool_names: Optional[list] = None,
     ):
+        self._tool_names = tool_names
         super().__init__(name, llm_client, context_manager, prompt_manager, tool_registry)
 
     def _setup_system_prompt(self) -> None:
-        system_prompt = self.prompt_manager._build_curator_prompt()
+        system_prompt = self.prompt_manager._build_curator_prompt(
+            tool_registry=self.tools,
+            tool_names=self._tool_names,
+        )
         self.context_manager.set_system_prompt(self.name, system_prompt)
 
     def _prepare_context(self, input: str | dict | Message = None) -> None:
@@ -225,6 +238,12 @@ class CuratorAgent(BaseAgent):
                 action_type, _ = ActionType.from_raw(raw_type)
 
             tool_name = llm_output.action.tool_name or raw_type
+
+            # 强制限制：如果配置了 tool_names，LLM 选择的工具必须在列表内
+            if self._tool_names and tool_name not in self._tool_names:
+                override = self._tool_names[0]
+                logger.warning(f"CuratorAgent LLM 选择了 '{tool_name}'，但仅允许 {self._tool_names}，强制覆盖为 '{override}'")
+                tool_name = override
 
             agent_resp = AgentResponse(
                 thought=llm_output.thought,

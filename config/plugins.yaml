@@ -2,14 +2,18 @@
 #
 # 字段说明:
 #   name:               工具名（LLM 返回的 tool_name）
-#   type:               插件类型（exec / network / local）
+#   type:               插件类型（exec / network / local / command）
+#                       exec:     WorkerAgent 工具，容器内执行命令
+#                       command:  用户命令插件，通过 /xxx 触发，不是 WorkerAgent 工具
+#                       network:  网络服务插件（预留）
+#                       local:    本地函数插件（需代码中注册）
 #   bound_action:       绑定的 ActionType（execute_command / local_call / stop）
 #   requires_confirmation: 是否需要用户确认
 #   container_name:     Docker 容器名
 #   entrypoint_cmd:     容器内入口命令
 #   mount_dirs:         挂载目录列表，格式: "/host/path:/container/path"
 #   parameters:         工具参数 Schema
-#   category:           前端分类（shell / search / ai / other）
+#   category:           前端分类（shell / search / ai / command / other）
 #   icon:               前端图标标识
 #
 # 注意: call_judge 由系统自动注册（CallJudgeTool），无需在此配置
@@ -60,7 +64,7 @@ plugins:
     container_name: "kb_container"
     image: "alpine:latest"
     entrypoint_cmd: "sh -c"
-    mount_dirs: ["./knowledge_base:/knowledge_base"]
+    mount_dirs: ["./knowledge_base:/knowledge_base:rw"]
     category: "search"
     icon: "search"
     parameters:
@@ -86,3 +90,23 @@ plugins:
         type: "string"
         description: "搜索关键词"
     required_params: ["query"]
+
+  # Curator 知识管理命令插件
+  # 用户通过 /summary 触发，CuratorAgent 在此容器中读写知识库
+  - name: "curator"
+    type: "command"
+    command_trigger: "/summary"
+    bound_action: "execute_command"
+    requires_confirmation: true
+    description: "知识库管理 — 输入 /summary 触发 CuratorAgent 整理经验教训"
+    container_name: "kb_container"
+    image: "alpine:latest"
+    entrypoint_cmd: "sh -c"
+    mount_dirs: ["./knowledge_base:/knowledge_base:rw"]
+    category: "command"
+    icon: "book"
+    parameters:
+      command:
+        type: "string"
+        description: "在知识库中执行的 Shell 命令"
+    required_params: ["command"]

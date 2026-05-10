@@ -33,11 +33,25 @@
         />
 
         <div class="chat-input">
+          <div class="command-hints" v-if="showHints">
+            <div
+              v-for="(hint, idx) in filteredHints"
+              :key="hint.trigger"
+              class="hint-item"
+              :class="{ active: idx === selectedHint }"
+              @mousedown.prevent="selectHint(hint)"
+            >
+              <span class="hint-trigger">{{ hint.trigger }}</span>
+              <span class="hint-desc">{{ hint.description }}</span>
+              <span v-if="hint.isPlugin" class="hint-tag">插件</span>
+            </div>
+          </div>
           <div class="input-wrapper">
             <textarea
               v-model="inputMessage"
-              placeholder="输入命令或问题... (/summary 进行总结)"
+              placeholder="输入命令或问题... (输入 / 查看可用命令)"
               @keydown.enter.exact.prevent="handleSend"
+              @keydown="handleHintKeydown"
               :disabled="chatStore.isThinking"
               rows="1"
               ref="textareaRef"
@@ -58,7 +72,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { sendMessage, sendCuratorTask, checkConnection } from '@/api/agent'
 import api from '@/api/agent'
@@ -78,7 +92,92 @@ const inputMessage = ref('')
 const messagesContainer = ref<HTMLElement | null>(null)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 
+// --- 命令提示系统 ---
+interface CommandHint {
+  name: string
+  trigger: string
+  description: string
+  isPlugin: boolean
+}
+
+const commandHints = ref<CommandHint[]>([])
+const showHints = ref(false)
+const selectedHint = ref(-1)
+
 const CURATOR_COMMANDS = ['/summary', '/curator', '/总结', '/整理']
+
+// 加载命令插件
+async function loadCommandHints() {
+  try {
+    const resp = await api.get('/plugins')
+    const plugins = resp.data || []
+    const hints: CommandHint[] = [
+      { name: '/help', trigger: '/help', description: '查看所有可用命令', isPlugin: false },
+    ]
+    for (const p of plugins) {
+      if (p.plugin_type === 'command' && p.status === 'running') {
+        hints.push({
+          name: `/${p.name}`,
+          trigger: p.name === 'curator' ? '/summary' : `/${p.name}`,
+          description: p.description,
+          isPlugin: true,
+        })
+      }
+    }
+    commandHints.value = hints
+  } catch {
+    commandHints.value = [{ name: '/help', trigger: '/help', description: '查看所有可用命令', isPlugin: false }]
+  }
+}
+
+// 过滤匹配的命令提示
+const filteredHints = computed(() => {
+  const q = inputMessage.value.trim().toLowerCase()
+  if (!q.startsWith('/')) return []
+  return commandHints.value.filter(h =>
+    h.trigger.toLowerCase().startsWith(q) || h.name.toLowerCase().startsWith(q)
+  )
+})
+
+watch(inputMessage, (val) => {
+  showHints.value = val.startsWith('/') && filteredHints.value.length > 0
+  selectedHint.value = -1
+})
+
+function selectHint(hint: CommandHint) {
+  inputMessage.value = hint.trigger + ' '
+  showHints.value = false
+  textareaRef.value?.focus()
+}
+
+function handleHintKeydown(e: KeyboardEvent) {
+  if (!showHints.value) return
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    selectedHint.value = Math.min(selectedHint.value + 1, filteredHints.value.length - 1)
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    selectedHint.value = Math.max(selectedHint.value - 1, -1)
+  } else if (e.key === 'Enter' && selectedHint.value >= 0) {
+    e.preventDefault()
+    selectHint(filteredHints.value[selectedHint.value])
+  } else if (e.key === 'Escape') {
+    showHints.value = false
+  }
+}
+
+function handleHelp(): string {
+  const lines = ['可用命令：']
+  for (const h of commandHints.value) {
+    lines.push(`  ${h.trigger}  — ${h.description}`)
+  }
+  if (commandHints.value.length <= 1) {
+    lines.push('  （当前没有启用的命令插件，请在工具设置页面启用）')
+  }
+  lines.push('')
+  lines.push('输入任意自然语言，Agent 会自动分析并执行。')
+  return lines.join('\n')
+}
 
 function isCuratorCommand(text: string): boolean {
   return CURATOR_COMMANDS.some(cmd => text.trim().toLowerCase().startsWith(cmd))
@@ -95,6 +194,7 @@ async function handleSend() {
   if (!msg || chatStore.isThinking) return
 
   inputMessage.value = ''
+  showHints.value = false
 
   chatStore.pushMessage({
     role: 'user',
@@ -103,6 +203,19 @@ async function handleSend() {
     thought: '',
     type: 'text',
   })
+
+  // /help 命令直接返回帮助信息
+  if (msg.toLowerCase() === '/help') {
+    chatStore.pushMessage({
+      role: 'system',
+      content: handleHelp(),
+      timestamp: new Date().toLocaleTimeString(),
+      thought: '',
+      type: 'text',
+      agent: 'System',
+    })
+    return
+  }
 
   chatStore.isThinking = true
 
@@ -214,6 +327,7 @@ onMounted(async () => {
   } catch {
     chatStore.isConnected = false
   }
+  loadCommandHints()
 })
 </script>
 
@@ -312,6 +426,58 @@ onMounted(async () => {
   background: rgba(255, 255, 255, 0.05);
   backdrop-filter: blur(10px);
   border-top: 1px solid rgba(255, 255, 255, 0.08);
+  position: relative;
+}
+
+.command-hints {
+  position: absolute;
+  bottom: 100%;
+  left: 20px;
+  right: 20px;
+  background: rgba(30, 30, 50, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 6px 0;
+  margin-bottom: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.hint-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.hint-item:hover,
+.hint-item.active {
+  background: rgba(64, 158, 255, 0.12);
+}
+
+.hint-trigger {
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: #79bbff;
+  min-width: 80px;
+}
+
+.hint-desc {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  flex: 1;
+}
+
+.hint-tag {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(230, 162, 60, 0.2);
+  color: #e6a23c;
 }
 
 .input-wrapper {

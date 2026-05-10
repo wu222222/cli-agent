@@ -26,7 +26,8 @@ class HealthResponse(BaseModel):
 class PluginInfo(BaseModel):
     name: str
     description: str
-    tool_type: str
+    tool_type: str  # execution_mode: local / exec / network
+    plugin_type: str = "exec"  # exec / command / local
     container_name: str = ""
     status: str = "unknown"
     bound_action: Optional[str] = None

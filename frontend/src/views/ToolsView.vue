@@ -14,26 +14,69 @@
     </header>
 
     <div class="tools-body">
-      <!-- Agent 选择 -->
-      <div class="agent-tabs">
-        <button
-          v-for="agent in agents"
-          :key="agent.id"
-          :class="['agent-tab', { active: activeAgent === agent.id }]"
-          @click="activeAgent = agent.id"
-        >
-          {{ agent.name }}
-        </button>
-      </div>
-
       <div class="tools-content">
         <div class="tools-section">
-          <h2>{{ currentAgentName }} 的工具</h2>
-          <p class="section-desc">勾选工具后点击"保存配置"，立即生效。</p>
+          <h2>工具与插件管理</h2>
+          <p class="section-desc">勾选 WorkerAgent 工具后点击"保存配置"。命令插件和容器插件可单独启停。</p>
 
           <div class="tool-list">
+            <!-- 命令型插件（非 WorkerAgent 工具） -->
+            <div class="tool-section-label" v-if="commandPlugins.length">
+              <span class="section-icon">📖</span> 命令插件
+            </div>
             <div
-              v-for="tool in availableTools"
+              v-for="tool in commandPlugins"
+              :key="tool.name"
+              class="tool-card command-card"
+            >
+              <div class="tool-check command-indicator" :title="tool.description">
+                <span>⌨</span>
+              </div>
+              <div class="tool-info">
+                <div class="tool-name">
+                  <span class="tool-icon">{{ getIcon(tool.icon) }}</span>
+                  {{ tool.name }}
+                  <span class="tool-badge" :class="tool.plugin_type">{{ tool.plugin_type }}</span>
+                </div>
+                <div class="tool-desc">{{ tool.description }}</div>
+                <div class="tool-meta">
+                  <template v-if="tool.tool_type === 'exec'">
+                    <span>容器: <code>{{ tool.container_name }}</code></span>
+                    <span class="tool-status" :class="tool.status">
+                      {{ tool.status === 'running' ? '运行中' : tool.status === 'stopped' ? '已停止' : '未启动' }}
+                    </span>
+                  </template>
+                </div>
+                <div class="tool-mounts" v-if="tool.mount_dirs && tool.mount_dirs.length">
+                  挂载: <code v-for="dir in tool.mount_dirs" :key="dir">{{ dir }}</code>
+                </div>
+              </div>
+              <div class="tool-actions" v-if="tool.tool_type === 'exec'" @click.stop>
+                <button
+                  v-if="tool.status !== 'running'"
+                  class="action-btn start-btn"
+                  :disabled="tool._starting"
+                  @click="startContainer(tool)"
+                >
+                  {{ tool._starting ? '启动中...' : '启动' }}
+                </button>
+                <button
+                  v-else
+                  class="action-btn stop-btn"
+                  :disabled="tool._stopping"
+                  @click="stopContainer(tool)"
+                >
+                  {{ tool._stopping ? '停止中...' : '停止' }}
+                </button>
+              </div>
+            </div>
+
+            <!-- WorkerAgent 工具 -->
+            <div class="tool-section-label" v-if="workerTools.length">
+              <span class="section-icon">⚙</span> WorkerAgent 工具
+            </div>
+            <div
+              v-for="tool in workerTools"
               :key="tool.name"
               class="tool-card"
               :class="{ selected: selectedTools.includes(tool.name) }"
@@ -47,7 +90,7 @@
                 <div class="tool-name">
                   <span class="tool-icon">{{ getIcon(tool.icon) }}</span>
                   {{ tool.name }}
-                  <span class="tool-badge" :class="tool.tool_type">{{ tool.tool_type }}</span>
+                  <span class="tool-badge" :class="tool.plugin_type">{{ tool.plugin_type }}</span>
                 </div>
                 <div class="tool-desc">{{ tool.description }}</div>
                 <div class="tool-meta">
@@ -100,6 +143,7 @@ interface ToolPreset {
   name: string
   description: string
   tool_type: string
+  plugin_type: string
   container_name: string
   status: string
   bound_action: string
@@ -111,19 +155,18 @@ interface ToolPreset {
   _stopping?: boolean
 }
 
-const agents = [
-  { id: 'worker', name: 'WorkerAgent' },
-]
-
-const activeAgent = ref('worker')
 const availableTools = ref<ToolPreset[]>([])
 const selectedTools = ref<string[]>([])
 const saving = ref(false)
 const saved = ref(false)
 
-const currentAgentName = computed(() => {
-  return agents.find(a => a.id === activeAgent.value)?.name || 'Agent'
-})
+const commandPlugins = computed(() =>
+  availableTools.value.filter(t => t.plugin_type === 'command')
+)
+
+const workerTools = computed(() =>
+  availableTools.value.filter(t => t.plugin_type !== 'command')
+)
 
 function getIcon(icon: string): string {
   const icons: Record<string, string> = {
@@ -131,6 +174,7 @@ function getIcon(icon: string): string {
     search: '🔍',
     globe: '🌐',
     judge: '⚖️',
+    book: '📖',
     default: '📦',
   }
   return icons[icon] || icons.default
@@ -148,9 +192,24 @@ function toggleTool(name: string) {
 
 async function loadConfig() {
   try {
-    const resp = await api.get('/agent/tools')
-    availableTools.value = resp.data.available_tools || []
-    selectedTools.value = resp.data.tool_names || []
+    const [toolsResp, pluginsResp] = await Promise.all([
+      api.get('/agent/tools'),
+      api.get('/plugins'),
+    ])
+    const workerTools = toolsResp.data.available_tools || []
+    const allPlugins = pluginsResp.data || []
+
+    // WorkerAgent 工具列表（可勾选）
+    availableTools.value = workerTools
+    selectedTools.value = toolsResp.data.tool_names || []
+
+    // 补充 command 类型插件（不可勾选为 WorkerAgent 工具，但可启停容器）
+    const commandPlugins = allPlugins.filter((p: any) => p.plugin_type === 'command')
+    for (const cmd of commandPlugins) {
+      if (!availableTools.value.find((t: any) => t.name === cmd.name)) {
+        availableTools.value.push(cmd)
+      }
+    }
   } catch (err) {
     console.error('Failed to load tools config:', err)
   }
@@ -309,35 +368,6 @@ onMounted(loadConfig)
   overflow: hidden;
 }
 
-.agent-tabs {
-  display: flex;
-  gap: 8px;
-  padding: 12px 20px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.agent-tab {
-  padding: 6px 16px;
-  border-radius: 8px;
-  font-size: 13px;
-  cursor: pointer;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: transparent;
-  color: rgba(255, 255, 255, 0.6);
-  transition: all 0.2s;
-}
-
-.agent-tab:hover {
-  border-color: rgba(255, 255, 255, 0.25);
-  color: rgba(255, 255, 255, 0.8);
-}
-
-.agent-tab.active {
-  border-color: #409eff;
-  background: rgba(64, 158, 255, 0.12);
-  color: #79bbff;
-}
-
 .tools-content {
   flex: 1;
   overflow-y: auto;
@@ -362,6 +392,22 @@ onMounted(loadConfig)
   gap: 8px;
 }
 
+.tool-section-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.6);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  margin-bottom: 4px;
+}
+
+.section-icon {
+  font-size: 14px;
+}
+
 .tool-card {
   display: flex;
   gap: 12px;
@@ -381,6 +427,22 @@ onMounted(loadConfig)
 .tool-card.selected {
   background: rgba(64, 158, 255, 0.08);
   border-color: rgba(64, 158, 255, 0.3);
+}
+
+.tool-card.command-card {
+  background: rgba(230, 162, 60, 0.04);
+  border-color: rgba(230, 162, 60, 0.15);
+  cursor: default;
+}
+
+.tool-card.command-card:hover {
+  background: rgba(230, 162, 60, 0.06);
+  border-color: rgba(230, 162, 60, 0.25);
+}
+
+.command-indicator {
+  color: #e6a23c;
+  font-size: 16px;
 }
 
 .tool-check {
@@ -429,6 +491,11 @@ onMounted(loadConfig)
 .tool-badge.network {
   background: rgba(40, 167, 69, 0.2);
   color: #7bdd8a;
+}
+
+.tool-badge.command {
+  background: rgba(230, 162, 60, 0.2);
+  color: #e6a23c;
 }
 
 .tool-desc {

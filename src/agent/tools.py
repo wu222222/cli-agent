@@ -26,6 +26,7 @@ class Tool(BaseModel):
     name: str
     description: str
     execution_mode: str = ExecutionMode.LOCAL
+    plugin_type: str = "exec"  # exec / command / network / local
     bound_action: ActionType  # 必填
     requires_confirmation: bool = False
     parameters: Dict[str, Any] = Field(default_factory=dict)
@@ -301,7 +302,7 @@ class ToolRegistry:
         except ValueError:
             logger.warning(f"插件 '{name}' 的 bound_action '{bound_action_str}' 无效，使用默认 EXECUTE_COMMAND")
 
-        if plugin_type == 'exec':
+        if plugin_type in ('exec', 'command'):
             container_name = cfg.get('container_name', '')
             entrypoint_cmd = cfg.get('entrypoint_cmd', 'sh -c')
 
@@ -316,6 +317,7 @@ class ToolRegistry:
                 entrypoint_cmd=entrypoint_cmd,
                 mount_dirs=mount_dirs,
             )
+            plugin.plugin_type = plugin_type
 
             if docker_client:
                 try:
@@ -329,7 +331,7 @@ class ToolRegistry:
                     logger.warning(f"插件 '{name}' 容器未找到: {container_name} ({e})")
 
             self.register(plugin)
-            logger.info(f"已注册 exec 插件: {name} -> {container_name}")
+            logger.info(f"已注册 {plugin_type} 插件: {name} -> {container_name}")
 
         elif plugin_type == 'network':
             endpoint_url = cfg.get('endpoint_url', '')

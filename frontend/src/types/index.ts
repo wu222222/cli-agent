@@ -65,6 +65,7 @@ export interface PluginInfo {
   name: string
   description: string
   tool_type: string
+  plugin_type: string  // exec / command / local
   container_name: string
   status: 'running' | 'stopped' | 'unknown'
 }

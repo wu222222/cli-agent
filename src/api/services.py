@@ -128,11 +128,38 @@ def _create_worker_agent(request_id: str) -> StreamingWorkerAgent:
 
 def _create_curator_agent(request_id: str) -> StreamingCuratorAgent:
     _get_or_init_components()
+
+    # 自动启动 curator 容器（kb_container），确保知识库可写
+    curator_tool = _tool_registry.get_tool("curator")
+    if curator_tool and hasattr(curator_tool, 'container_name') and curator_tool.container_name:
+        if _plugin_manager:
+            from src.agent.tools import ExecContainerPlugin
+            if isinstance(curator_tool, ExecContainerPlugin) and not curator_tool._container:
+                # 转换 mount_dirs 为 Docker volumes 格式
+                volumes = {}
+                for m in getattr(curator_tool, 'mount_dirs', []):
+                    parts = m.split(':')
+                    if len(parts) >= 2:
+                        host_path = os.path.abspath(parts[0])
+                        container_path = parts[1]
+                        mode = parts[2] if len(parts) > 2 else 'rw'
+                        volumes[host_path] = {'bind': container_path, 'mode': mode}
+                success = _plugin_manager.ensure_running(
+                    curator_tool.container_name, "alpine:latest",
+                    volumes=volumes or None,
+                )
+                if success:
+                    container = _plugin_manager.get_container(curator_tool.container_name)
+                    if container:
+                        curator_tool.bind_container(container)
+                        logger.info(f"Curator 容器已自动启动: {curator_tool.container_name}")
+
     agent = StreamingCuratorAgent(
         llm_client=_llm_client,
         context_manager=_context_manager,
         prompt_manager=_prompt_manager,
         tool_registry=_tool_registry,
+        tool_names=["curator"],
     )
     emit_start, emit_result, emit_thought = _make_emit_callbacks(request_id, _tool_registry)
     agent.on_tool_start = emit_start

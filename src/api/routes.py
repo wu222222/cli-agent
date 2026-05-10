@@ -215,6 +215,7 @@ def _build_plugin_list(registry, manager, include_call_judge: bool = False) -> L
             name=tool.name,
             description=tool.description,
             tool_type=tool.execution_mode,
+            plugin_type=getattr(tool, 'plugin_type', 'exec'),
             container_name=container_name,
             status=status,
             bound_action=tool.bound_action.value if tool.bound_action else None,
@@ -259,19 +260,31 @@ async def start_plugin(name: str):
     if not tool.container_name:
         return PluginActionResponse(success=False, message="未配置容器名")
 
-    # 尝试从 YAML 获取 image
+    # 从 YAML 获取 image 和 mount_dirs
     import yaml, os
     plugins_yaml = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "config", "plugins.yaml")
     image = ""
+    mount_dirs = []
     if os.path.exists(plugins_yaml):
         with open(plugins_yaml, encoding='utf-8') as f:
             cfg = yaml.safe_load(f)
         for p in cfg.get('plugins', []):
             if p.get('name') == name:
                 image = p.get('image', '')
+                mount_dirs = p.get('mount_dirs', [])
                 break
 
-    success = manager.ensure_running(tool.container_name, image)
+    # 转换 mount_dirs 为 Docker volumes 格式
+    volumes = {}
+    for m in mount_dirs:
+        parts = m.split(':')
+        if len(parts) >= 2:
+            host_path = os.path.abspath(parts[0])
+            container_path = parts[1]
+            mode = parts[2] if len(parts) > 2 else 'rw'
+            volumes[host_path] = {'bind': container_path, 'mode': mode}
+
+    success = manager.ensure_running(tool.container_name, image, volumes=volumes or None)
     if success:
         container = manager.get_container(tool.container_name)
         if container:
@@ -307,9 +320,10 @@ async def stop_plugin(name: str):
 
     try:
         container.stop(timeout=5)
+        container.remove(force=True)
         manager._containers.pop(tool.container_name, None)
         tool.bind_container(None)
-        return PluginActionResponse(success=True, message=f"插件 '{name}' 已停止")
+        return PluginActionResponse(success=True, message=f"插件 '{name}' 已停止并删除")
     except Exception as e:
         return PluginActionResponse(success=False, message=f"停止失败: {e}")
 
@@ -322,13 +336,18 @@ class AgentToolConfig(BaseModel):
 
 @router.get("/agent/tools")
 async def get_agent_tools():
-    """获取 WorkerAgent 当前的工具配置"""
+    """获取 WorkerAgent 当前的工具配置（不含 command 类型插件）"""
     _get_or_init_components()
     registry = get_tool_registry()
     manager = get_plugin_manager()
+    if not registry:
+        return {"tool_names": [], "available_tools": []}
+    all_tools = _build_plugin_list(registry, manager, include_call_judge=True)
+    # command 类型插件不是 WorkerAgent 工具，不显示在工具配置列表中
+    worker_tools = [t for t in all_tools if t.plugin_type != "command"]
     return {
         "tool_names": get_worker_tool_names(),
-        "available_tools": _build_plugin_list(registry, manager, include_call_judge=True) if registry else [],
+        "available_tools": worker_tools,
     }
 
 
