@@ -76,6 +76,7 @@ import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { sendMessage, sendCuratorTask, checkConnection } from '@/api/agent'
 import api from '@/api/agent'
+import { executeCommandPlugin } from '@/api/config'
 import { useChatStore } from '@/stores/chat'
 import { useSSE } from '@/composables/useSSE'
 import MessageBubble from '@/components/MessageBubble.vue'
@@ -179,14 +180,23 @@ function handleHelp(): string {
   return lines.join('\n')
 }
 
-function isCuratorCommand(text: string): boolean {
-  return CURATOR_COMMANDS.some(cmd => text.trim().toLowerCase().startsWith(cmd))
+// 检测命令插件触发器（curator 固定命令 + 动态 command 插件）
+function detectCommandTrigger(text: string): { toolName: string; trigger: string } | null {
+  const trimmed = text.trim().toLowerCase()
+  // curator 固定命令
+  const curatorCmd = CURATOR_COMMANDS.find(c => trimmed.startsWith(c))
+  if (curatorCmd) return { toolName: 'curator', trigger: curatorCmd }
+  // 动态命令插件触发器
+  for (const h of commandHints.value) {
+    if (h.isPlugin && trimmed.startsWith(h.trigger.toLowerCase())) {
+      return { toolName: h.name.replace(/^\//, ''), trigger: h.trigger }
+    }
+  }
+  return null
 }
 
-function extractCuratorTask(text: string): string {
-  const cmd = CURATOR_COMMANDS.find(c => text.trim().toLowerCase().startsWith(c))
-  if (!cmd) return text
-  return text.slice(cmd.length).trim() || '请总结对话历史'
+function extractCommandArgs(text: string, trigger: string): string {
+  return text.trim().slice(trigger.length).trim() || ''
 }
 
 async function handleSend() {
@@ -221,8 +231,30 @@ async function handleSend() {
 
   try {
     let response
-    if (isCuratorCommand(msg)) {
-      response = await sendCuratorTask(extractCuratorTask(msg))
+    const cmdTrigger = detectCommandTrigger(msg)
+    if (cmdTrigger) {
+      const args = extractCommandArgs(msg, cmdTrigger.trigger)
+      if (cmdTrigger.toolName === 'curator') {
+        // curator 命令 → 走 CuratorAgent
+        response = await sendCuratorTask(args || '请总结对话历史')
+      } else {
+        // 普通 command 插件 → 直接在容器中执行
+        chatStore.isThinking = false
+        const result = await executeCommandPlugin(cmdTrigger.toolName, args || undefined)
+        chatStore.pushMessage({
+          role: 'system',
+          content: result.success
+            ? (result.output || '（无输出）')
+            : `执行失败: ${result.message || '未知错误'}`,
+          timestamp: new Date().toLocaleTimeString(),
+          thought: '',
+          type: 'tool_result',
+          agent: cmdTrigger.toolName,
+          toolName: cmdTrigger.toolName,
+          command: args || '(默认命令)',
+        })
+        return
+      }
     } else {
       response = await sendMessage(msg)
     }
@@ -253,7 +285,7 @@ async function handleSend() {
   }
 }
 
-async function handleConfirm() {
+async function handleConfirm(guidance: string = '') {
   isConfirming = true
   const command = chatStore.pendingCommand
   chatStore.clearPending()
@@ -262,17 +294,17 @@ async function handleConfirm() {
   chatStore.isThinking = true
 
   try {
-    const response = await sendMessage(command, true)
-    if (response.request_id) {
-      connect(response.request_id)
+    const response = await api.post('/agent/chat/confirm', { message: guidance })
+    if (response.data.request_id) {
+      connect(response.data.request_id)
     } else {
       chatStore.pushMessage({
         role: 'system',
-        content: response.content,
+        content: response.data.content,
         timestamp: new Date().toLocaleTimeString(),
-        thought: response.thought || '',
+        thought: response.data.thought || '',
         type: 'text',
-        agent: response.agent,
+        agent: response.data.agent,
       })
       chatStore.isThinking = false
     }
@@ -289,19 +321,40 @@ async function handleConfirm() {
   }
 }
 
-function handleCancel() {
+async function handleCancel(guidance: string = '') {
   // 防止 handleConfirm 的 clearPending 间接触发
   if (isConfirming) return
 
   chatStore.clearPending()
-  chatStore.isThinking = false
 
-  // 通知后端拒绝命令
-  api.post('/agent/chat/reject').catch(() => {})
+  if (guidance) {
+    // 有引导 → 重新思考，保持 thinking 状态
+    chatStore.isThinking = true
+    try {
+      const response = await api.post('/agent/chat/reject', { message: guidance })
+      if (response.data.request_id) {
+        connect(response.data.request_id)
+        chatStore.pushMessage({
+          role: 'system',
+          content: `已引导 Agent 重新思考: ${guidance}`,
+          timestamp: new Date().toLocaleTimeString(),
+          thought: '',
+          type: 'text',
+          agent: 'System',
+        })
+        return
+      }
+    } catch {}
+    chatStore.isThinking = false
+  } else {
+    // 无引导 → 终止
+    chatStore.isThinking = false
+    api.post('/agent/chat/reject', { message: '' }).catch(() => {})
+  }
 
   chatStore.pushMessage({
     role: 'system',
-    content: '命令执行已被用户拒绝',
+    content: guidance ? '已将引导信息发送给 Agent，重新思考中...' : '命令执行已被用户拒绝',
     timestamp: new Date().toLocaleTimeString(),
     thought: '',
     type: 'text',

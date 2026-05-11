@@ -118,8 +118,10 @@ class ExecutingState(State):
     
     def on_enter(self, data: Optional[StateData] = None):
         self.response = None
+        self._user_guidance = ""
         if isinstance(data, ThinkingToExecutingData):
             self.response = data.response
+            self._user_guidance = data.user_guidance or ""
             logger.debug(f"response:{self.response}")
         else:
             # 如果类型不对，可以提前预警或处理
@@ -152,6 +154,9 @@ class ExecutingState(State):
                     self.response.action_params,
                     self.response.tool_name,
                 )
+                # 如果有用户引导，追加到工具结果
+                if self._user_guidance:
+                    observation = f"{observation}\n\n[用户引导] {self._user_guidance}"
                 # 添加assistant消息和工具结果到上下文
                 self.agent.context_manager.add_assistant_message(self.agent.name,self.response.content,[self.agent.name])
                 self.agent.context_manager.add_tool_result(
@@ -212,12 +217,27 @@ class WaitingConfirmationState(State):
             return StateTransition(state=AgentState.WAITING_CONFIRMATION, data=self.data)
 
         if self.data.confirmed is True:
-            # 情况 B: 用户点允许
+            # 情况 B: 用户点允许（可选带引导）
             return StateTransition(state=AgentState.EXECUTING, data=self.data)
         else:
             # 情况 C: 用户点拒绝
-            self.agent.context_manager.set_final_answer("操作已被用户取消")
-            return StateTransition(state=AgentState.COMPLETED)
+            if self.data.user_guidance:
+                # 有引导 → 注入 tool_result，回到 THINKING 重新思考
+                tool_name = resp.tool_name or resp.action_type.value
+                guidance_result = f"[用户拒绝执行并提供引导] {self.data.user_guidance}"
+                self.agent.context_manager.add_assistant_message(
+                    self.agent.name, resp.content, [self.agent.name]
+                )
+                self.agent.context_manager.add_tool_result(
+                    agent_name=self.agent.name,
+                    tool_name=tool_name,
+                    result=guidance_result,
+                )
+                return StateTransition(state=AgentState.THINKING, data=self.data)
+            else:
+                # 无引导 → 终止
+                self.agent.context_manager.set_final_answer("操作已被用户取消")
+                return StateTransition(state=AgentState.COMPLETED)
 
     def can_transition_to(self, new_state: AgentState, data: Optional[StateData] = None) -> bool:
         if new_state == AgentState.EXECUTING:

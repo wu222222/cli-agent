@@ -115,18 +115,53 @@ class BaseAgent(ABC):
     def _parse_action(self, response_text: str) -> Optional[LLMOutput]:
         """从 LLM 原始响应中提取并校验 JSON 结构"""
         try:
-            if "```json" in response_text:
-                json_str = response_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in response_text:
-                json_str = response_text.split("```")[1].split("```")[0].strip()
-            else:
-                json_str = response_text.strip()
+            json_str = self._extract_json(response_text)
+            if not json_str:
+                return None
 
-            data = json.loads(json_str)
+            # strict=False 允许字符串中的控制字符（换行符等），兼容 LLM heredoc 输出
+            data = json.loads(json_str, strict=False)
             return LLMOutput.model_validate(data)
         except (json.JSONDecodeError, IndexError, ValidationError) as e:
             logger.warning(f"JSON 解析或结构校验失败: {e}")
+            if isinstance(e, json.JSONDecodeError) and e.pos:
+                logger.debug(f"JSON 错误位置附近: {repr(json_str[max(0,e.pos-30):e.pos+30])}")
             return None
+
+    @staticmethod
+    def _extract_json(text: str) -> Optional[str]:
+        """从 LLM 响应中提取 JSON 字符串，正确处理嵌套的代码块"""
+        # 方法 1: 找 ```json 开头，然后从末尾找最后一个 ```
+        json_start = text.find('```json')
+        if json_start >= 0:
+            content_start = text.find('\n', json_start)
+            if content_start < 0:
+                content_start = json_start + 7
+            # 从末尾找最后一个 ```
+            last_close = text.rfind('```')
+            if last_close > content_start:
+                return text[content_start:last_close].strip()
+
+        # 方法 2: 找 ``` 开头（非 json）
+        code_start = text.find('```')
+        if code_start >= 0:
+            content_start = text.find('\n', code_start)
+            if content_start < 0:
+                content_start = code_start + 3
+            last_close = text.rfind('```')
+            if last_close > content_start:
+                candidate = text[content_start:last_close].strip()
+                if candidate.startswith('{'):
+                    return candidate
+
+        # 方法 3: 直接找 { 开始到末尾的 }
+        start = text.find('{')
+        if start >= 0:
+            end = text.rfind('}')
+            if end > start:
+                return text[start:end+1].strip()
+
+        return text.strip()
 
     async def _execute_action(self, action_type: ActionType, action_params: Dict[str, Any], tool_name: Optional[str] = None) -> str:
         """执行action，优先使用 tool_name 调用具体工具"""

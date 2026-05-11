@@ -1,5 +1,9 @@
 import asyncio
+import logging
 from typing import Optional, Dict, Any, Callable, Awaitable
+
+logger = logging.getLogger("streaming")
+TOOL_CALL_TIMEOUT = 60  # 工具调用整体超时（秒）
 
 from src.agent import WorkerAgent, CuratorAgent
 from src.agent.types import ActionType
@@ -120,7 +124,14 @@ class StreamingWorkerAgent(WorkerAgent):
         if self.on_tool_start:
             await self.on_tool_start(agent_name, exec_name, action_params)
 
-        result = await self.tools.run(exec_name, action_params)
+        try:
+            result = await asyncio.wait_for(
+                self.tools.run(exec_name, action_params),
+                timeout=TOOL_CALL_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            result = f"错误: 工具 '{exec_name}' 调用超时 ({TOOL_CALL_TIMEOUT}秒)。请尝试更简单的命令。"
+            logger.warning(f"工具 '{exec_name}' 调用超时 ({TOOL_CALL_TIMEOUT}s)")
 
         if self.on_tool_result:
             await self.on_tool_result(agent_name, exec_name, result)
@@ -145,7 +156,14 @@ class StreamingCuratorAgent(CuratorAgent):
         if self.on_tool_start:
             await self.on_tool_start(self.name, exec_name, action_params)
 
-        result = await self.tools.run(exec_name, action_params)
+        try:
+            result = await asyncio.wait_for(
+                self.tools.run(exec_name, action_params),
+                timeout=TOOL_CALL_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            result = f"错误: 工具 '{exec_name}' 调用超时 ({TOOL_CALL_TIMEOUT}秒)。请尝试更简单的命令。"
+            logger.warning(f"工具 '{exec_name}' 调用超时 ({TOOL_CALL_TIMEOUT}s)")
 
         if self.on_tool_result:
             await self.on_tool_result(self.name, exec_name, result)

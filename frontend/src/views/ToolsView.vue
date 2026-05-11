@@ -20,6 +20,52 @@
           <p class="section-desc">勾选 WorkerAgent 工具后点击"保存配置"。命令插件和容器插件可单独启停。</p>
 
           <div class="tool-list">
+            <!-- Compose 组插件 -->
+            <div class="tool-section-label" v-if="composes.length">
+              <span class="section-icon">🎯</span> Compose 插件
+            </div>
+            <div
+              v-for="comp in composes"
+              :key="comp.name"
+              class="compose-card"
+            >
+              <div class="compose-header">
+                <div class="compose-title">
+                  <span class="compose-icon">{{ getIcon(comp.icon) }}</span>
+                  {{ comp.name }}
+                  <span class="compose-status" :class="{ running: comp.running }">
+                    {{ comp.running ? '● 运行中' : '○ 未启动' }}
+                  </span>
+                </div>
+                <div class="compose-desc">{{ comp.description }}</div>
+                <div class="compose-children" v-if="comp.children.length">
+                  <span class="children-label">子工具:</span>
+                  <code v-for="child in comp.children" :key="child.name">{{ child.name }}</code>
+                </div>
+                <div class="compose-actions">
+                  <button
+                    v-if="!comp.running"
+                    class="action-btn start-btn"
+                    :disabled="comp._starting"
+                    @click="startCompose(comp)"
+                  >
+                    {{ comp._starting ? '启动中...' : '启动' }}
+                  </button>
+                  <template v-else>
+                    <button class="action-btn stop-btn" :disabled="comp._stopping" @click="stopCompose(comp)">
+                      {{ comp._stopping ? '停止中...' : '停止' }}
+                    </button>
+                    <button class="action-btn reset-btn" :disabled="comp._resetting" @click="resetCompose(comp)">
+                      {{ comp._resetting ? '重置中...' : '重置' }}
+                    </button>
+                    <button class="action-btn regen-btn" :disabled="comp._regenerating" @click="regenCompose(comp)">
+                      {{ comp._regenerating ? '生成中...' : '重新生成 Flag' }}
+                    </button>
+                  </template>
+                </div>
+              </div>
+            </div>
+
             <!-- 命令型插件（非 WorkerAgent 工具） -->
             <div class="tool-section-label" v-if="commandPlugins.length">
               <span class="section-icon">📖</span> 命令插件
@@ -136,6 +182,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '@/api/agent'
+import { regenerateCompose } from '@/api/config'
 
 const router = useRouter()
 
@@ -160,6 +207,22 @@ const selectedTools = ref<string[]>([])
 const saving = ref(false)
 const saved = ref(false)
 
+interface ComposeItem {
+  name: string
+  description: string
+  compose_file: string
+  running: boolean
+  category: string
+  icon: string
+  children: any[]
+  _starting?: boolean
+  _stopping?: boolean
+  _resetting?: boolean
+  _regenerating?: boolean
+}
+
+const composes = ref<ComposeItem[]>([])
+
 const commandPlugins = computed(() =>
   availableTools.value.filter(t => t.plugin_type === 'command')
 )
@@ -175,6 +238,7 @@ function getIcon(icon: string): string {
     globe: '🌐',
     judge: '⚖️',
     book: '📖',
+    target: '🎯',
     default: '📦',
   }
   return icons[icon] || icons.default
@@ -192,9 +256,10 @@ function toggleTool(name: string) {
 
 async function loadConfig() {
   try {
-    const [toolsResp, pluginsResp] = await Promise.all([
+    const [toolsResp, pluginsResp, composesResp] = await Promise.all([
       api.get('/agent/tools'),
       api.get('/plugins'),
+      api.get('/composes'),
     ])
     const workerTools = toolsResp.data.available_tools || []
     const allPlugins = pluginsResp.data || []
@@ -204,12 +269,15 @@ async function loadConfig() {
     selectedTools.value = toolsResp.data.tool_names || []
 
     // 补充 command 类型插件（不可勾选为 WorkerAgent 工具，但可启停容器）
-    const commandPlugins = allPlugins.filter((p: any) => p.plugin_type === 'command')
-    for (const cmd of commandPlugins) {
+    const cmdPlugins = allPlugins.filter((p: any) => p.plugin_type === 'command')
+    for (const cmd of cmdPlugins) {
       if (!availableTools.value.find((t: any) => t.name === cmd.name)) {
         availableTools.value.push(cmd)
       }
     }
+
+    // Compose 组插件
+    composes.value = (composesResp.data || []).map((c: any) => ({ ...c }))
   } catch (err) {
     console.error('Failed to load tools config:', err)
   }
@@ -244,6 +312,79 @@ async function stopContainer(tool: ToolPreset) {
     alert(`停止失败: ${err.response?.data?.message || err.message}`)
   } finally {
     tool._stopping = false
+  }
+}
+
+async function startCompose(comp: ComposeItem) {
+  comp._starting = true
+  try {
+    const resp = await api.post(`/plugins/${comp.name}/start`)
+    if (resp.data.success) {
+      comp.running = true
+      // 重新加载配置以获取子工具
+      await loadConfig()
+    } else {
+      alert(`启动失败: ${resp.data.message}`)
+    }
+  } catch (err: any) {
+    alert(`启动失败: ${err.response?.data?.message || err.message}`)
+  } finally {
+    comp._starting = false
+  }
+}
+
+async function stopCompose(comp: ComposeItem) {
+  if (!confirm(`确定停止 "${comp.name}"？子工具将被注销。`)) return
+  comp._stopping = true
+  try {
+    const resp = await api.post(`/plugins/${comp.name}/stop`)
+    if (resp.data.success) {
+      comp.running = false
+      await loadConfig()
+    } else {
+      alert(`停止失败: ${resp.data.message}`)
+    }
+  } catch (err: any) {
+    alert(`停止失败: ${err.response?.data?.message || err.message}`)
+  } finally {
+    comp._stopping = false
+  }
+}
+
+async function resetCompose(comp: ComposeItem) {
+  if (!confirm(`确定重置 "${comp.name}"？容器内数据将丢失！`)) return
+  comp._resetting = true
+  try {
+    const resp = await api.post(`/plugins/${comp.name}/reset`)
+    if (resp.data.success) {
+      comp.running = true
+      await loadConfig()
+    } else {
+      alert(`重置失败: ${resp.data.message}`)
+    }
+  } catch (err: any) {
+    alert(`重置失败: ${err.response?.data?.message || err.message}`)
+  } finally {
+    comp._resetting = false
+  }
+}
+
+async function regenCompose(comp: ComposeItem) {
+  if (!confirm(`确定重新生成 Flag？旧 flag 将失效，环境将重建！`)) return
+  comp._regenerating = true
+  try {
+    const result = await regenerateCompose(comp.name)
+    if (result.success) {
+      comp.running = true
+      alert(`Flag 已重新生成！\n\n${result.message}`)
+      await loadConfig()
+    } else {
+      alert(`生成失败: ${result.message}`)
+    }
+  } catch (err: any) {
+    alert(`生成失败: ${err.response?.data?.message || err.message}`)
+  } finally {
+    comp._regenerating = false
   }
 }
 
@@ -599,5 +740,102 @@ onMounted(loadConfig)
 
 .stop-btn:hover:not(:disabled) {
   background: rgba(220, 53, 69, 0.25);
+}
+
+.reset-btn {
+  background: rgba(230, 162, 60, 0.15);
+  color: #e6a23c;
+  border-color: rgba(230, 162, 60, 0.3);
+}
+
+.reset-btn:hover:not(:disabled) {
+  background: rgba(230, 162, 60, 0.25);
+}
+
+.regen-btn {
+  background: rgba(100, 60, 200, 0.15);
+  color: #b37feb;
+  border-color: rgba(100, 60, 200, 0.3);
+}
+
+.regen-btn:hover:not(:disabled) {
+  background: rgba(100, 60, 200, 0.25);
+}
+
+/* Compose 卡片 */
+.compose-card {
+  background: rgba(100, 60, 200, 0.06);
+  border: 1px solid rgba(100, 60, 200, 0.2);
+  border-radius: 10px;
+  padding: 14px 16px;
+  transition: all 0.2s;
+}
+
+.compose-card:hover {
+  border-color: rgba(100, 60, 200, 0.35);
+}
+
+.compose-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.compose-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.compose-icon {
+  font-size: 16px;
+}
+
+.compose-status {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 4px;
+  background: rgba(108, 117, 125, 0.2);
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.compose-status.running {
+  background: rgba(40, 167, 69, 0.2);
+  color: #7bdd8a;
+}
+
+.compose-desc {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  white-space: pre-line;
+}
+
+.compose-children {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  flex-wrap: wrap;
+}
+
+.children-label {
+  font-weight: 500;
+}
+
+.compose-children code {
+  background: rgba(255, 255, 255, 0.08);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: 'Fira Code', monospace;
+}
+
+.compose-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
 }
 </style>

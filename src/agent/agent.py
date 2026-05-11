@@ -231,8 +231,8 @@ class CuratorAgent(BaseAgent):
                 )
 
             raw_type = llm_output.action.type
-            # CuratorAgent 的 LLM 可能返回 "curate"，映射到 EXECUTE_COMMAND
-            if raw_type == "curate":
+            # CuratorAgent 只支持 EXECUTE_COMMAND 和 STOP
+            if raw_type in ("curate", "local_call", "execute_command"):
                 action_type = ActionType.EXECUTE_COMMAND
             else:
                 action_type, _ = ActionType.from_raw(raw_type)

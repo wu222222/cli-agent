@@ -3,7 +3,7 @@ from typing import Optional, List, Dict, Any
 
 
 class ChatRequest(BaseModel):
-    message: str
+    message: str = ""
     confirmed: Optional[bool] = False
 
 
@@ -38,6 +38,19 @@ class PluginInfo(BaseModel):
     # 预设相关字段
     category: str = "other"
     icon: str = "default"
+    # compose 子工具标识
+    parent_compose: Optional[str] = None
+
+
+class ComposePluginInfo(BaseModel):
+    """Compose 组插件信息"""
+    name: str
+    description: str
+    compose_file: str
+    running: bool = False
+    category: str = "other"
+    icon: str = "default"
+    children: List[PluginInfo] = []
 
 
 class PluginActionResponse(BaseModel):

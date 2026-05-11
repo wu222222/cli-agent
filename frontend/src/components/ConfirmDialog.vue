@@ -19,26 +19,53 @@
         <div class="confirm-command-label">即将执行的命令：</div>
         <pre class="confirm-command">{{ command }}</pre>
       </div>
+      <div class="confirm-guidance">
+        <textarea
+          v-model="guidance"
+          class="guidance-input"
+          :placeholder="guidancePlaceholder"
+          rows="2"
+        ></textarea>
+      </div>
     </div>
     <template #footer>
       <div class="confirm-actions">
-        <el-button @click="$emit('cancel')">拒绝</el-button>
-        <el-button type="primary" @click="$emit('confirm')">执行</el-button>
+        <el-button @click="$emit('cancel', guidance)">
+          {{ guidance ? '拒绝 + 引导' : '拒绝' }}
+        </el-button>
+        <el-button type="primary" @click="$emit('confirm', guidance)">
+          {{ guidance ? '执行 + 引导' : '执行' }}
+        </el-button>
       </div>
     </template>
   </el-dialog>
 </template>
 
 <script setup lang="ts">
-defineProps<{
+import { ref, computed, watch } from 'vue'
+
+const props = defineProps<{
   visible: boolean
   command: string
   thought?: string
 }>()
 
+const guidance = ref('')
+
+// 对话框关闭时清空引导文本
+watch(() => props.visible, (val) => {
+  if (!val) guidance.value = ''
+})
+
+const guidancePlaceholder = computed(() =>
+  guidance.value
+    ? '输入引导信息...'
+    : '可选：输入引导信息调整 Agent 方向...'
+)
+
 defineEmits<{
-  confirm: []
-  cancel: []
+  confirm: [guidance: string]
+  cancel: [guidance: string]
 }>()
 </script>
 
@@ -91,6 +118,34 @@ defineEmits<{
   overflow-x: auto;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+.confirm-guidance {
+  margin-top: 4px;
+}
+
+.guidance-input {
+  width: 100%;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+  outline: none;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.guidance-input:focus {
+  border-color: rgba(64, 158, 255, 0.5);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.guidance-input::placeholder {
+  color: rgba(255, 255, 255, 0.35);
 }
 
 .confirm-actions {

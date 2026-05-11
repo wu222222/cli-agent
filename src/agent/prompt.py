@@ -71,6 +71,11 @@ JSON 格式规范：
             plugin_docs = self._generate_plugin_docs(tool_registry)
             print(f"[PromptManager] 使用全部工具（未指定 tool_names）")
 
+        # 注入 compose 环境说明
+        compose_env = ""
+        if tool_registry and tool_names:
+            compose_env = self._generate_compose_env(tool_registry, tool_names)
+
         tool_name_list = self._generate_tool_name_list(tool_registry, tool_names)
         print(f"[PromptManager] 工具名列表: {tool_name_list[:200]}")
 
@@ -82,6 +87,8 @@ JSON 格式规范：
 
         ## 核心原则
         {chr(10).join(self.base_principles)}
+
+        {compose_env}
 
         ## 处理规范
         - 如果你发现结果违背常识，请抛弃常识，尊重结果。
@@ -115,6 +122,23 @@ JSON 格式规范：
         return f"""## 可用工具名 (tool_name)
 **必填**。请在 tool_name 字段指定具体工具。
 可选值: {', '.join(names)}"""
+
+    def _generate_compose_env(self, tool_registry, tool_names: list) -> str:
+        """为 compose 子工具生成环境说明"""
+        if not hasattr(tool_registry, '_compose_plugins'):
+            return ""
+        env_parts = []
+        for compose in tool_registry._compose_plugins.values():
+            # 检查 tool_names 中是否有该 compose 的子工具
+            has_child = any(
+                name in tool_names and name in compose._registered_children
+                for name in tool_names
+            )
+            if has_child and compose.description:
+                env_parts.append(f"### {compose.name}\n{compose.description.strip()}")
+        if env_parts:
+            return "\n## 环境信息\n" + "\n\n".join(env_parts) + "\n"
+        return ""
 
     def _generate_tool_docs_for_agent(self, tool_registry, tool_names: list) -> str:
         """为指定 Agent 的工具列表生成文档"""
@@ -191,7 +215,7 @@ JSON 格式规范：
 """
 
     def _build_curator_prompt(self, tool_registry=None, tool_names: list = None) -> str:
-        allowed = [ActionType.EXECUTE_COMMAND, ActionType.LOCAL_CALL, ActionType.STOP]
+        allowed = [ActionType.EXECUTE_COMMAND, ActionType.STOP]
 
         plugin_docs = ""
         tool_name_list = ""

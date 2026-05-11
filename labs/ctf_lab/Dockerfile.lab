@@ -1,0 +1,18 @@
+FROM alpine:latest
+
+# 安装基础工具
+RUN apk add --no-cache bash coreutils
+
+# 通过 build arg 传入 flag，写入临时文件（setup 读取后删除）
+ARG FLAG1
+ARG FLAG2
+ARG FLAG3
+RUN echo "${FLAG1}" > /tmp/.flag1 && \
+    echo "${FLAG2}" > /tmp/.flag2 && \
+    echo "${FLAG3}" > /tmp/.flag3 && \
+    chmod 600 /tmp/.flag1 /tmp/.flag2 /tmp/.flag3
+
+COPY setup_lab.sh /setup_lab.sh
+RUN chmod +x /setup_lab.sh
+
+CMD ["/bin/bash", "-c", "/setup_lab.sh && rm -f /setup_lab.sh && sleep infinity"]

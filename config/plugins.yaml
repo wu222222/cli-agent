@@ -110,3 +110,39 @@ plugins:
         type: "string"
         description: "在知识库中执行的 Shell 命令"
     required_params: ["command"]
+
+  # Compose 组插件 — CTF 安全靶场
+  - name: "ctf_lab"
+    type: "compose"
+    description: |
+      CTF 安全靶场环境 (3 个 flag)
+      提交机地址: http://submission:8080
+      提交 flag: wget -qO- 'http://submission:8080/submit?flag=YOUR_FLAG'
+    compose_file: "labs/ctf_lab/docker-compose.yml"
+    category: "lab"
+    icon: "target"
+    plugins:
+      - name: "ctf_shell"
+        type: "exec"
+        service_name: "lab"
+        description: "攻击机 shell — 可执行任意命令，寻找并提交 flag"
+        requires_confirmation: true
+        entrypoint_cmd: "sh -c"
+        parameters:
+          command:
+            type: "string"
+            description: "要执行的命令"
+        required_params: ["command"]
+      - name: "ctf_status"
+        type: "command"
+        command_trigger: "/ctf_status"
+        service_name: "submission"
+        description: "查看提交机状态 — 已找到的 flag 和提交记录"
+        default_command: "python3 -c \"import urllib.request,json; r=urllib.request.urlopen('http://localhost:8080/status'); d=json.loads(r.read()); print(json.dumps(d,indent=2,ensure_ascii=False))\""
+        requires_confirmation: false
+        entrypoint_cmd: "sh -c"
+        parameters:
+          command:
+            type: "string"
+            description: "要执行的命令"
+        required_params: ["command"]

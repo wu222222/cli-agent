@@ -16,3 +16,6 @@ tests/
 code_task_prompt/
 
 examples/
+# CTF Lab generated files
+labs/ctf_lab/.env
+labs/ctf_lab/shared/

@@ -1,0 +1,27 @@
+version: "3.8"
+
+services:
+  # 攻击机 — Agent 在这里执行命令
+  lab:
+    build:
+      context: .
+      dockerfile: Dockerfile.lab
+      args:
+        FLAG1: ${FLAG1:-FLAG{default_1}}
+        FLAG2: ${FLAG2:-FLAG{default_2}}
+        FLAG3: ${FLAG3:-FLAG{default_3}}
+    networks:
+      - ctf_net
+
+  # 提交机 — 接收并验证 flag 提交（不暴露端口，仅 compose 网络内访问）
+  submission:
+    image: python:3-alpine
+    volumes:
+      - ./submission_server.py:/app/server.py
+      - ./shared:/shared:ro
+    command: python /app/server.py
+    networks:
+      - ctf_net
+
+networks:
+  ctf_net:

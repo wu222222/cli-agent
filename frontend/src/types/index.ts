@@ -67,7 +67,8 @@ export interface PluginInfo {
   tool_type: string
   plugin_type: string  // exec / command / local
   container_name: string
-  status: 'running' | 'stopped' | 'unknown'
+  status: 'running' | 'stopped' | 'unknown' | 'registered' | 'pending'
+  parent_compose?: string
 }
 
 export interface PluginDetail extends PluginInfo {
@@ -80,6 +81,16 @@ export interface PluginDetail extends PluginInfo {
   required_params?: string[]
   category?: string
   icon?: string
+}
+
+export interface ComposePluginInfo {
+  name: string
+  description: string
+  compose_file: string
+  running: boolean
+  category: string
+  icon: string
+  children: PluginInfo[]
 }
 
 export interface PluginActionResponse {

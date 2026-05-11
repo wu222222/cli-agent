@@ -98,6 +98,7 @@ class ThinkingToExecutingData(StateData):
     response: AgentResponse
     confirmed: Optional[bool] = None
     confirmation_prompt: Optional[str] = ""
+    user_guidance: Optional[str] = ""  # 用户引导消息
 
     def format_for_log(self) -> str:
         return f"[{self.__class__.__name__}] 动作: {self.response.action_type.value} | 工具: {self.response.tool_name}"
