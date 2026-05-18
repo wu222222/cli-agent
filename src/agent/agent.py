@@ -1,8 +1,7 @@
-import json
-from typing import Optional, Dict, Any
+from typing import Optional, Any
 
 from src.logger import get_logger
-from src.llm import LLMClient, LLMConfig
+from src.llm import LLMClient
 
 from .statemachine import WorkerStateMachine, JudgeStateMachine, CuratorStateMachine
 from .types import *
@@ -259,3 +258,40 @@ class CuratorAgent(BaseAgent):
         except Exception as e:
             logger.error(f"CuratorAgent 思考过程出错: {e}")
             raise
+
+
+# ============================================================
+# Agent 类型注册 — 加新 Agent 类型只需在此加一条
+# ============================================================
+
+from .registry import AgentConfig, register_agent
+from .statemachine import WorkerStateMachine, JudgeStateMachine, CuratorStateMachine
+
+register_agent(AgentConfig(
+    agent_type="worker",
+    base_class=WorkerAgent,
+    state_machine_class=WorkerStateMachine,
+    prompt_method="_build_worker_prompt",
+    tool_filter="config",
+    route_api="/agent/chat",
+))
+
+register_agent(AgentConfig(
+    agent_type="curator",
+    base_class=CuratorAgent,
+    state_machine_class=CuratorStateMachine,
+    prompt_method="_build_curator_prompt",
+    tool_filter="all_matching",
+    auto_start_containers=True,
+    route_api="/agent/curator",
+))
+
+register_agent(AgentConfig(
+    agent_type="judge",
+    base_class=JudgeAgent,
+    state_machine_class=JudgeStateMachine,
+    prompt_method="_build_judge_prompt",
+    tool_filter="all_matching",
+    auto_start_containers=False,
+    route_api=None,  # 不直接暴露给用户
+))

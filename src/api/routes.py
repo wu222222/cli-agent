@@ -197,18 +197,8 @@ async def list_plugins():
 
 
 def _build_plugin_list(registry, manager, include_call_judge: bool = False) -> List[PluginInfo]:
-    """构建插件列表，支持复用"""
+    """构建插件列表 — 所有数据直接从 Tool 对象读取，不再重读 YAML"""
     from src.agent.tools import ExecContainerPlugin
-    import yaml, os
-
-    # 从 YAML 读取额外元数据（category, icon）
-    yaml_meta: Dict[str, Dict] = {}
-    plugins_yaml = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "config", "plugins.yaml")
-    if os.path.exists(plugins_yaml):
-        with open(plugins_yaml, encoding='utf-8') as f:
-            cfg = yaml.safe_load(f)
-        for p in cfg.get('plugins', []):
-            yaml_meta[p.get('name', '')] = p
 
     plugins: List[PluginInfo] = []
 
@@ -222,14 +212,13 @@ def _build_plugin_list(registry, manager, include_call_judge: bool = False) -> L
             container = manager.get_container(container_name)
             status = "running" if container else "stopped"
 
-        meta = yaml_meta.get(name, {})
         mount_dirs = getattr(tool, 'mount_dirs', []) if isinstance(tool, ExecContainerPlugin) else []
 
         plugins.append(PluginInfo(
             name=tool.name,
             description=tool.description,
-            tool_type=tool.execution_mode,
             plugin_type=getattr(tool, 'plugin_type', 'exec'),
+            agent_type=getattr(tool, 'agent_type', 'worker'),
             container_name=container_name,
             status=status,
             bound_action=tool.bound_action.value if tool.bound_action else None,
@@ -237,8 +226,10 @@ def _build_plugin_list(registry, manager, include_call_judge: bool = False) -> L
             mount_dirs=mount_dirs,
             parameters=tool.parameters if tool.parameters else None,
             required_params=tool.required_params if tool.required_params else None,
-            category=meta.get('category', 'other'),
-            icon=meta.get('icon', 'default'),
+            category=getattr(tool, 'category', 'other'),
+            icon=getattr(tool, 'icon', 'default'),
+            command_trigger=getattr(tool, 'command_trigger', ''),
+            display_name=getattr(tool, 'display_name', ''),
             parent_compose=getattr(tool, '_parent_compose', None),
         ))
 
@@ -494,11 +485,21 @@ async def list_composes():
             continue
         children = []
         for child_cfg in compose.children_config:
-            child_type = child_cfg.get('type', 'exec')
-            if child_type == 'exec' and not child_cfg.get('register', True):
-                continue
-            if child_type not in ('exec', 'command'):
-                continue
+            role = child_cfg.get('role', None)
+            child_type = child_cfg.get('type', 'exec')  # 兼容旧字段
+
+            # 新版 role 字段: exec / command / aux
+            if role is not None:
+                if role == 'aux':
+                    continue  # 辅助容器不注册
+                child_type = role
+            else:
+                # 旧版兼容: type + register 字段
+                if child_type == 'exec' and not child_cfg.get('register', True):
+                    continue
+                if child_type not in ('exec', 'command'):
+                    continue
+
             child_name = child_cfg.get('name', '')
             service_name = child_cfg.get('service_name', '')
             # 检查子工具是否已注册
@@ -507,14 +508,17 @@ async def list_composes():
             children.append(PluginInfo(
                 name=child_name,
                 description=child_cfg.get('description', ''),
-                tool_type="exec",
-                plugin_type=child_cfg.get('type', 'exec'),
+                plugin_type=child_type,
+                agent_type=child_cfg.get('agent_type', 'none' if child_type == 'command' else 'worker'),
                 container_name=f"{cname}-{service_name}-1",
                 status=status,
                 bound_action="execute_command",
                 requires_confirmation=child_cfg.get('requires_confirmation', False),
                 parameters=child_cfg.get('parameters'),
                 required_params=child_cfg.get('required_params'),
+                category=child_cfg.get('category', 'other'),
+                icon=child_cfg.get('icon', 'default'),
+                command_trigger=child_cfg.get('command_trigger', ''),
                 parent_compose=cname,
             ))
         result.append(ComposePluginInfo(

@@ -78,12 +78,14 @@ import { sendMessage, sendCuratorTask, checkConnection } from '@/api/agent'
 import api from '@/api/agent'
 import { executeCommandPlugin } from '@/api/config'
 import { useChatStore } from '@/stores/chat'
+import { usePluginStore } from '@/stores/plugin'
 import { useSSE } from '@/composables/useSSE'
 import MessageBubble from '@/components/MessageBubble.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
 const router = useRouter()
 const chatStore = useChatStore()
+const pluginStore = usePluginStore()
 const { connect } = useSSE()
 
 // 防止 handleConfirm 清除 pending 时触发 handleCancel
@@ -99,35 +101,36 @@ interface CommandHint {
   trigger: string
   description: string
   isPlugin: boolean
+  agentType: string
 }
 
 const commandHints = ref<CommandHint[]>([])
 const showHints = ref(false)
 const selectedHint = ref(-1)
 
-const CURATOR_COMMANDS = ['/summary', '/curator', '/总结', '/整理']
-
-// 加载命令插件
+// 加载命令插件 — command_trigger 完全由 API 提供，不再硬编码
 async function loadCommandHints() {
   try {
     const resp = await api.get('/plugins')
     const plugins = resp.data || []
     const hints: CommandHint[] = [
-      { name: '/help', trigger: '/help', description: '查看所有可用命令', isPlugin: false },
+      { name: '/help', trigger: '/help', description: '查看所有可用命令', isPlugin: false, agentType: 'none' },
     ]
     for (const p of plugins) {
       if (p.plugin_type === 'command' && p.status === 'running') {
+        const trigger = p.command_trigger || `/${p.name}`
         hints.push({
           name: `/${p.name}`,
-          trigger: p.name === 'curator' ? '/summary' : `/${p.name}`,
+          trigger: trigger,
           description: p.description,
           isPlugin: true,
+          agentType: p.agent_type || 'none',
         })
       }
     }
     commandHints.value = hints
   } catch {
-    commandHints.value = [{ name: '/help', trigger: '/help', description: '查看所有可用命令', isPlugin: false }]
+    commandHints.value = [{ name: '/help', trigger: '/help', description: '查看所有可用命令', isPlugin: false, agentType: 'none' }]
   }
 }
 
@@ -180,13 +183,9 @@ function handleHelp(): string {
   return lines.join('\n')
 }
 
-// 检测命令插件触发器（curator 固定命令 + 动态 command 插件）
+// 检测命令插件触发器 — 完全由 commandHints 驱动，无硬编码
 function detectCommandTrigger(text: string): { toolName: string; trigger: string } | null {
   const trimmed = text.trim().toLowerCase()
-  // curator 固定命令
-  const curatorCmd = CURATOR_COMMANDS.find(c => trimmed.startsWith(c))
-  if (curatorCmd) return { toolName: 'curator', trigger: curatorCmd }
-  // 动态命令插件触发器
   for (const h of commandHints.value) {
     if (h.isPlugin && trimmed.startsWith(h.trigger.toLowerCase())) {
       return { toolName: h.name.replace(/^\//, ''), trigger: h.trigger }
@@ -234,11 +233,15 @@ async function handleSend() {
     const cmdTrigger = detectCommandTrigger(msg)
     if (cmdTrigger) {
       const args = extractCommandArgs(msg, cmdTrigger.trigger)
-      if (cmdTrigger.toolName === 'curator') {
-        // curator 命令 → 走 CuratorAgent
+      // 根据 agent_type 决定路由（由 API 返回，不再硬编码）
+      const hint = commandHints.value.find(h => h.trigger === cmdTrigger.trigger)
+      const agentType = hint?.agentType || 'none'
+
+      if (agentType === 'curator') {
+        // agent_type=curator → 走 CuratorAgent
         response = await sendCuratorTask(args || '请总结对话历史')
       } else {
-        // 普通 command 插件 → 直接在容器中执行
+        // agent_type=none → 直接在容器中执行
         chatStore.isThinking = false
         const result = await executeCommandPlugin(cmdTrigger.toolName, args || undefined)
         chatStore.pushMessage({

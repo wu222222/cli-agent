@@ -64,11 +64,13 @@ export interface ToolCall {
 export interface PluginInfo {
   name: string
   description: string
-  tool_type: string
-  plugin_type: string  // exec / command / local
+  plugin_type: string  // exec / command / compose / local / network（唯一类型标识）
+  agent_type: string   // worker / judge / curator / none
   container_name: string
   status: 'running' | 'stopped' | 'unknown' | 'registered' | 'pending'
   parent_compose?: string
+  command_trigger?: string  // 仅 command 类型，如 "/summary"
+  display_name?: string     // 前端/SSE 显示名
 }
 
 export interface PluginDetail extends PluginInfo {

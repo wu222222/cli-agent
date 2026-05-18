@@ -1,27 +1,28 @@
-# Safe-CLI-Agent 插件配置
+# Safe-CLI-Agent 插件配置 v2
 #
 # 字段说明:
-#   name:               工具名（LLM 返回的 tool_name）
-#   type:               插件类型（exec / network / local / command）
-#                       exec:     WorkerAgent 工具，容器内执行命令
-#                       command:  用户命令插件，通过 /xxx 触发，不是 WorkerAgent 工具
-#                       network:  网络服务插件（预留）
-#                       local:    本地函数插件（需代码中注册）
+#   type:               插件类型（exec / command / compose / local / network）
+#   agent_type:         绑定到哪个 Agent（worker / judge / curator / none）
+#                       none = 不绑定 Agent，直接执行（command 插件常用）
 #   bound_action:       绑定的 ActionType（execute_command / local_call / stop）
 #   requires_confirmation: 是否需要用户确认
-#   container_name:     Docker 容器名
-#   entrypoint_cmd:     容器内入口命令
-#   mount_dirs:         挂载目录列表，格式: "/host/path:/container/path"
-#   parameters:         工具参数 Schema
-#   category:           前端分类（shell / search / ai / command / other）
+#   command_trigger:    命令触发词（仅 type: command 使用），如 "/summary"
+#   display_name:       前端/SSE 显示名（可选，如 call_judge 显示为 "JudgeAgent"）
+#   category:           前端 ToolsView 分类（shell / search / ai / command / lab / other）
 #   icon:               前端图标标识
+#   mount_dirs:         挂载目录，格式 "/host/path:/container/path"
 #
-# 注意: call_judge 由系统自动注册（CallJudgeTool），无需在此配置
+# 注意: 所有插件统一由此文件管理，不再有代码硬编码注册。
 
 plugins:
-  # Alpine Shell 插件
+
+  # ============================
+  # exec 插件 — Agent 工具
+  # ============================
+
   - name: "alpine_shell"
     type: "exec"
+    agent_type: "worker"
     bound_action: "execute_command"
     requires_confirmation: true
     description: "Alpine Linux 轻量级 shell 环境，适合基础命令操作"
@@ -37,9 +38,9 @@ plugins:
         description: "要执行的 shell 命令"
     required_params: ["command"]
 
-  # MyLab 自定义环境插件
   - name: "mylab"
     type: "exec"
+    agent_type: "worker"
     bound_action: "execute_command"
     requires_confirmation: true
     description: "自定义实验环境（flag 靶场）"
@@ -55,9 +56,9 @@ plugins:
         description: "要执行的 shell 命令"
     required_params: ["command"]
 
-  # 知识库查询插件
   - name: "grep_knowledge"
     type: "exec"
+    agent_type: "worker"
     bound_action: "execute_command"
     requires_confirmation: false
     description: "在知识库容器中搜索 CLI 最佳实践、故障排除步骤和命令语法"
@@ -73,9 +74,9 @@ plugins:
         description: "在知识库目录中执行的 Shell 命令，如 'grep -r keyword /knowledge_base'"
     required_params: ["command"]
 
-  # SearXNG 搜索插件
   - name: "search"
     type: "exec"
+    agent_type: "worker"
     bound_action: "execute_command"
     requires_confirmation: false
     description: "通过 SearXNG 搜索引擎搜索互联网信息"
@@ -91,10 +92,13 @@ plugins:
         description: "搜索关键词"
     required_params: ["query"]
 
-  # Curator 知识管理命令插件
-  # 用户通过 /summary 触发，CuratorAgent 在此容器中读写知识库
+  # ============================
+  # command 插件 — 用户快捷命令
+  # ============================
+
   - name: "curator"
     type: "command"
+    agent_type: "curator"
     command_trigger: "/summary"
     bound_action: "execute_command"
     requires_confirmation: true
@@ -111,7 +115,33 @@ plugins:
         description: "在知识库中执行的 Shell 命令"
     required_params: ["command"]
 
-  # Compose 组插件 — CTF 安全靶场
+  # ============================
+  # local 插件 — 进程内函数
+  # ============================
+
+  - name: "call_judge"
+    type: "local"
+    agent_type: "judge"
+    bound_action: "local_call"
+    requires_confirmation: false
+    description: "调用 JudgeAgent 评审结果合理性"
+    display_name: "JudgeAgent"
+    param_schema: "src.agent.types:LocalCallParams"
+    category: "ai"
+    icon: "check"
+    parameters:
+      final_answer:
+        type: "string"
+        description: "最终准备给用户的判断结果"
+      evidence_summary:
+        type: "string"
+        description: "简述你得出此结论的证据链（可选）"
+    required_params: ["final_answer"]
+
+  # ============================
+  # compose 插件 — 多容器组
+  # ============================
+
   - name: "ctf_lab"
     type: "compose"
     description: |
@@ -121,28 +151,47 @@ plugins:
     compose_file: "labs/ctf_lab/docker-compose.yml"
     category: "lab"
     icon: "target"
-    plugins:
-      - name: "ctf_shell"
-        type: "exec"
-        service_name: "lab"
+    services:
+      # Agent 工具 — 攻击机 shell
+      - service_name: "lab"
+        role: "exec"
+        agent_type: "worker"
+        name: "ctf_shell"
         description: "攻击机 shell — 可执行任意命令，寻找并提交 flag"
         requires_confirmation: true
         entrypoint_cmd: "sh -c"
+        bound_action: "execute_command"
+        category: "shell"
+        icon: "terminal"
         parameters:
           command:
             type: "string"
             description: "要执行的命令"
         required_params: ["command"]
-      - name: "ctf_status"
-        type: "command"
+
+      # 用户命令 — 提交机状态查询
+      - service_name: "submission"
+        role: "command"
+        agent_type: "none"
+        name: "ctf_status"
         command_trigger: "/ctf_status"
-        service_name: "submission"
         description: "查看提交机状态 — 已找到的 flag 和提交记录"
         default_command: "python3 -c \"import urllib.request,json; r=urllib.request.urlopen('http://localhost:8080/status'); d=json.loads(r.read()); print(json.dumps(d,indent=2,ensure_ascii=False))\""
         requires_confirmation: false
         entrypoint_cmd: "sh -c"
+        category: "command"
+        icon: "chart"
         parameters:
           command:
             type: "string"
             description: "要执行的命令"
         required_params: ["command"]
+
+      # 辅助容器 — 靶机（不暴露给 Agent）
+      - service_name: "target1"
+        role: "aux"
+        description: "靶机 1 — 存放 flag1，仅 lab 容器内网可访问"
+
+      - service_name: "target2"
+        role: "aux"
+        description: "靶机 2 — 存放 flag2，仅 lab 容器内网可访问"

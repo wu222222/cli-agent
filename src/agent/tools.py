@@ -6,32 +6,46 @@ import inspect
 import os
 import logging
 
-from .types import ActionType, ACTION_SCHEMA_MAP, ValidationError as PydanticValidationError
+from .types import ActionType, ValidationError as PydanticValidationError
 
 logger = logging.getLogger("tools")
-
-
-# --- 执行模式枚举 ---
-
-class ExecutionMode:
-    LOCAL = "local"
-    EXEC = "exec"
-    NETWORK = "network"
 
 
 # --- 工具基类 ---
 
 class Tool(BaseModel):
-    """工具基类 — 自描述"""
+    """工具基类 — 自描述，一条 YAML 描述全部行为"""
+    # === 身份 ===
     name: str
     description: str
-    execution_mode: str = ExecutionMode.LOCAL
-    plugin_type: str = "exec"  # exec / command / network / local
+    plugin_type: str = "exec"   # exec / command / compose / local / network（唯一类型标识）
+
+    # === Agent 绑定 ===
+    agent_type: str = "worker"  # 对应 AGENT_REGISTRY: worker / judge / curator / none
+
+    # === FSM 路由 ===
     bound_action: ActionType  # 必填
     requires_confirmation: bool = False
+
+    # === 工具 Schema（给 LLM 看） ===
     parameters: Dict[str, Any] = Field(default_factory=dict)
     required_params: List[str] = Field(default_factory=list)
     param_schema: Optional[Type[BaseModel]] = None
+
+    # === 前端展示（从 YAML 缓存） ===
+    category: str = "other"
+    icon: str = "default"
+    command_trigger: str = ""           # 仅 command 类型使用
+    display_name: str = ""              # 前端/SSE 显示名（如 call_judge 显示为 "JudgeAgent"）
+
+    # === Docker 执行 ===
+    container_name: str = ""
+    entrypoint_cmd: str = "sh -c"
+    mount_dirs: List[str] = Field(default_factory=list)
+
+    # === 扩展钩子（方案 C 填充实现） ===
+    _on_register: Optional[Callable] = None     # async (tool, registry, manager) -> None
+    _on_unregister: Optional[Callable] = None   # async (tool, registry) -> None
 
     class Config:
         arbitrary_types_allowed = True
@@ -49,6 +63,11 @@ class Tool(BaseModel):
                 }
             }
         }
+
+    @property
+    def is_command_plugin(self) -> bool:
+        """command 类型插件不暴露给 LLM function-calling"""
+        return self.plugin_type == "command"
 
     def validate_params(self, params: Dict[str, Any]) -> Dict[str, Any]:
         if not self.param_schema:
@@ -73,7 +92,7 @@ class Tool(BaseModel):
 # --- Type 1: 本地工具 ---
 
 class LocalTool(Tool):
-    execution_mode: str = ExecutionMode.LOCAL
+    plugin_type: str = "local"
     handler: Optional[Union[Callable[..., Any], Callable[..., Awaitable[Any]]]] = None
 
     async def run(self, **params) -> str:
@@ -93,12 +112,11 @@ class LocalTool(Tool):
 # --- Type 2: Exec 容器插件 ---
 
 class ExecContainerPlugin(Tool):
-    execution_mode: str = ExecutionMode.EXEC
+    plugin_type: str = "exec"
     container_name: str = ""
     entrypoint_cmd: str = "sh -c"
     mount_dirs: List[str] = Field(default_factory=list)  # 挂载目录列表
     default_command: str = ""  # command 插件的默认命令
-    command_trigger: str = ""  # command 插件的触发器（如 /ctf_status）
     _container: Any = None
 
     class Config:
@@ -168,7 +186,7 @@ class ExecContainerPlugin(Tool):
 # --- Type 3: Network 容器插件（预留） ---
 
 class NetworkContainerPlugin(Tool):
-    execution_mode: str = ExecutionMode.NETWORK
+    plugin_type: str = "network"
     endpoint_url: str = ""
     port_bindings: Dict[int, int] = Field(default_factory=dict)
 
@@ -252,13 +270,20 @@ class ComposePlugin:
         import docker.errors
         registered = []
         for child_cfg in self.children_config:
-            child_type = child_cfg.get('type', 'exec')
-            if child_type not in ('exec', 'command'):
-                continue
-            # exec 类型默认注册，除非 register: false
-            # command 类型始终注册（用户命令插件）
-            if child_type == 'exec' and not child_cfg.get('register', True):
-                continue
+            # 新版 role 字段优先: exec / command / aux
+            role = child_cfg.get('role', None)
+            if role is not None:
+                if role == 'aux':
+                    logger.info(f"Compose 辅助容器 '{child_cfg.get('service_name')}' 跳过注册 (role=aux)")
+                    continue
+                child_type = role  # exec 或 command
+            else:
+                # 旧版兼容: type 字段 + register 布尔
+                child_type = child_cfg.get('type', 'exec')
+                if child_type not in ('exec', 'command'):
+                    continue
+                if child_type == 'exec' and not child_cfg.get('register', True):
+                    continue
 
             service_name = child_cfg.get('service_name', '')
             if not service_name:
@@ -282,8 +307,8 @@ class ComposePlugin:
             child_tool = ExecContainerPlugin(
                 name=child_cfg['name'],
                 description=child_cfg.get('description', ''),
-                execution_mode=ExecutionMode.EXEC,
                 plugin_type=child_type,
+                agent_type=child_cfg.get('agent_type', 'none' if child_type == 'command' else 'worker'),
                 bound_action=ActionType.EXECUTE_COMMAND,
                 requires_confirmation=child_cfg.get('requires_confirmation', False),
                 container_name=container_name,
@@ -293,6 +318,9 @@ class ComposePlugin:
                 mount_dirs=child_cfg.get('mount_dirs', []),
                 default_command=child_cfg.get('default_command', ''),
                 command_trigger=child_cfg.get('command_trigger', ''),
+                category=child_cfg.get('category', 'other'),
+                icon=child_cfg.get('icon', 'default'),
+                display_name=child_cfg.get('display_name', ''),
             )
             child_tool.bind_container(container)
             child_tool._parent_compose = self.name
@@ -310,37 +338,14 @@ class ComposePlugin:
         self._registered_children.clear()
 
 
-# --- 内置工具 ---
+# --- 通用辅助 ---
 
-class CallJudgeTool(LocalTool):
-    """call_judge 工具 — 绑定到 LOCAL_CALL"""
-    bound_action: ActionType = ActionType.LOCAL_CALL
-
-    def __init__(self, **data):
-        super().__init__(**data)
-        from .types import LocalCallParams
-        self.param_schema = LocalCallParams
-
-    def format_start(self, params: Dict[str, Any]) -> str:
-        answer = params.get('final_answer', '')
-        evidence = params.get('evidence_summary', '')
-        lines = ["正在调用 JudgeAgent 进行评审..."]
-        if answer:
-            lines.append(f"待评审答案: {answer}")
-        if evidence:
-            lines.append(f"证据摘要: {evidence}")
-        return "\n".join(lines)
-
-    def format_result(self, raw_content: str) -> str:
-        import re
-        obs_match = re.search(r"observation='(.*?)'", raw_content)
-        action_match = re.search(r"action_type='(.*?)'", raw_content)
-        if obs_match:
-            obs = obs_match.group(1)
-            action = action_match.group(1) if action_match else ""
-            return f"评审意见: {obs}" + (f"\n处理方式: {action}" if action else "")
-        return raw_content
-
+def _import_class(path: str):
+    """动态导入类，格式: 'module.path:ClassName'"""
+    module_path, class_name = path.rsplit(':', 1)
+    import importlib
+    module = importlib.import_module(module_path)
+    return getattr(module, class_name)
 
 # --- 通用格式化辅助 ---
 
@@ -373,19 +378,6 @@ class ToolRegistry:
     def __init__(self):
         self._tools: Dict[str, Tool] = {}
         self._compose_plugins: Dict[str, ComposePlugin] = {}
-        self._register_default_tools()
-
-    def _register_default_tools(self) -> None:
-        self.register(CallJudgeTool(
-            name="call_judge",
-            description="调用 JudgeAgent 评审结果合理性",
-            bound_action=ActionType.LOCAL_CALL,
-            parameters={
-                "final_answer": {"type": "string", "description": "最终准备给用户的判断结果"},
-                "evidence_summary": {"type": "string", "description": "简述你得出此结论的证据链（可选）"}
-            },
-            required_params=["final_answer"],
-        ))
 
     def register(self, tool: Tool) -> None:
         self._tools[tool.name] = tool
@@ -412,8 +404,8 @@ class ToolRegistry:
             return tool.bound_action
         return None
 
-    def get_tools_by_mode(self, mode: str) -> List[Tool]:
-        return [t for t in self._tools.values() if t.execution_mode == mode]
+    def get_tools_by_type(self, plugin_type: str) -> List[Tool]:
+        return [t for t in self._tools.values() if getattr(t, 'plugin_type', '') == plugin_type]
 
     def register_compose(self, compose: 'ComposePlugin') -> None:
         self._compose_plugins[compose.name] = compose
@@ -451,6 +443,13 @@ class ToolRegistry:
         bound_action_str = cfg.get('bound_action', 'execute_command')
         mount_dirs = cfg.get('mount_dirs', [])
 
+        # === YAML 元数据缓存 ===
+        agent_type = cfg.get('agent_type', 'worker')
+        category = cfg.get('category', 'other')
+        icon = cfg.get('icon', 'default')
+        command_trigger = cfg.get('command_trigger', '')
+        display_name = cfg.get('display_name', '')
+
         bound_action = ActionType.EXECUTE_COMMAND
         try:
             bound_action = ActionType(bound_action_str)
@@ -464,18 +463,22 @@ class ToolRegistry:
             plugin = ExecContainerPlugin(
                 name=name,
                 description=description,
+                plugin_type=plugin_type,
+                agent_type=agent_type,
+                bound_action=bound_action,
+                requires_confirmation=requires_confirmation,
                 parameters=parameters,
                 required_params=required_params,
-                requires_confirmation=requires_confirmation,
-                bound_action=bound_action,
                 container_name=container_name,
                 entrypoint_cmd=entrypoint_cmd,
                 mount_dirs=mount_dirs,
+                category=category,
+                icon=icon,
+                command_trigger=command_trigger,
+                display_name=display_name,
             )
-            plugin.plugin_type = plugin_type
             if plugin_type == 'command':
                 plugin.default_command = cfg.get('default_command', '')
-                plugin.command_trigger = cfg.get('command_trigger', '')
 
             if docker_client:
                 try:
@@ -497,19 +500,28 @@ class ToolRegistry:
             plugin = NetworkContainerPlugin(
                 name=name,
                 description=description,
+                plugin_type="network",
+                agent_type=agent_type,
+                bound_action=bound_action,
+                requires_confirmation=requires_confirmation,
                 parameters=parameters,
                 required_params=required_params,
-                requires_confirmation=requires_confirmation,
-                bound_action=bound_action,
                 endpoint_url=endpoint_url,
                 port_bindings=port_bindings,
+                category=category,
+                icon=icon,
             )
             self.register(plugin)
             logger.info(f"已注册 network 插件: {name}")
 
         elif plugin_type == 'compose':
             compose_file = cfg.get('compose_file', '')
-            children = cfg.get('plugins', [])
+            # 兼容新旧字段名: services（新）优先，plugins（旧）fallback
+            children = cfg.get('services', None)
+            if children is None:
+                children = cfg.get('plugins', [])
+                if children:
+                    logger.info(f"Compose '{name}' 使用旧字段 'plugins:'，建议迁移到 'services:'")
             compose = ComposePlugin(
                 name=name,
                 description=description,
@@ -519,10 +531,34 @@ class ToolRegistry:
                 icon=cfg.get('icon', 'default'),
             )
             self.register_compose(compose)
-            logger.info(f"已注册 compose 插件: {name} (子工具: {len(children)} 个)")
+            logger.info(f"已注册 compose 插件: {name} (子服务: {len(children)} 个)")
 
         elif plugin_type == 'local':
-            logger.info(f"跳过 local 插件（需代码中注册）: {name}")
+            # 从 YAML 加载 local 插件（不再需要代码中注册）
+            param_schema_cls = None
+            param_schema_path = cfg.get('param_schema', '')
+            if param_schema_path:
+                try:
+                    param_schema_cls = _import_class(param_schema_path)
+                except Exception as e:
+                    logger.warning(f"local 插件 '{name}' 无法加载 param_schema '{param_schema_path}': {e}")
+
+            plugin = LocalTool(
+                name=name,
+                description=description,
+                plugin_type="local",
+                agent_type=agent_type,
+                bound_action=bound_action,
+                requires_confirmation=requires_confirmation,
+                parameters=parameters,
+                required_params=required_params,
+                param_schema=param_schema_cls,
+                category=category,
+                icon=icon,
+                display_name=display_name or name,
+            )
+            self.register(plugin)
+            logger.info(f"已注册 local 插件: {name} (agent_type={agent_type})")
 
         else:
             logger.warning(f"未知插件类型: {plugin_type} ({name})")

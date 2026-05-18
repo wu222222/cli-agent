@@ -145,7 +145,3 @@ class StateTrace(BaseModel):
     data: Optional[StateData] = None
 
 
-class TaskPolicy(BaseModel):
-    allow_kb_search: bool = True
-    allow_curation: bool = True
-    read_only_kb: bool = True

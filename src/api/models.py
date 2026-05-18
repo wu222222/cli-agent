@@ -26,8 +26,8 @@ class HealthResponse(BaseModel):
 class PluginInfo(BaseModel):
     name: str
     description: str
-    tool_type: str  # execution_mode: local / exec / network
-    plugin_type: str = "exec"  # exec / command / local
+    plugin_type: str = "exec"  # exec / command / compose / local / network（唯一类型标识）
+    agent_type: str = "worker"  # worker / judge / curator / none
     container_name: str = ""
     status: str = "unknown"
     bound_action: Optional[str] = None
@@ -35,9 +35,11 @@ class PluginInfo(BaseModel):
     mount_dirs: List[str] = []
     parameters: Optional[Dict[str, Any]] = None
     required_params: Optional[List[str]] = None
-    # 预设相关字段
+    # 前端展示（直接从 Tool 对象读取，不再重读 YAML）
     category: str = "other"
     icon: str = "default"
+    command_trigger: str = ""
+    display_name: str = ""
     # compose 子工具标识
     parent_compose: Optional[str] = None
 

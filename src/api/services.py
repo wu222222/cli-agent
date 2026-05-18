@@ -6,6 +6,7 @@ from typing import Optional, List
 from src.agent import JudgeAgent, ContextManager, PromptManager, ToolRegistry
 from src.agent.base import BaseAgent
 from src.agent.types import AgentState, ThinkingToExecutingData
+from src.agent.registry import get_agent_config
 from src.executor import PluginContainerManager
 from src.llm.client import LLMClient
 
@@ -103,69 +104,108 @@ def _get_or_init_components():
             output = f"[JudgeAgent 思考] {judge_thought}\n\n{output}"
         return output
 
-    judge_tool = _tool_registry.get_tool("call_judge")
-    if judge_tool:
-        judge_tool.handler = judge_handler
+    # 为所有 agent_type="judge" 的 local 工具绑定 handler
+    for tool_name in _tool_registry.list_tools():
+        tool = _tool_registry.get_tool(tool_name)
+        if tool and getattr(tool, 'agent_type', '') == 'judge' and getattr(tool, 'plugin_type', '') == 'local':
+            tool.handler = judge_handler
+            logger.info(f"Judge handler 已绑定到: {tool_name}")
 
     logger.info(f"所有工具注册完成: {_tool_registry.list_tools()}")
 
 
-def _create_worker_agent(request_id: str) -> StreamingWorkerAgent:
+# --- Agent 创建（基于 AgentRegistry，数据驱动） ---
+
+def _resolve_tool_names(agent_type: str) -> List[str]:
+    """根据 AgentConfig.tool_filter 解析工具名列表"""
+    config = get_agent_config(agent_type)
+    if not config:
+        return []
+
+    if config.tool_filter == "config":
+        return list(_worker_tool_names)
+    elif config.tool_filter == "all_matching":
+        return [
+            name for name in _tool_registry.list_tools()
+            if getattr(_tool_registry.get_tool(name), 'agent_type', '') == agent_type
+        ]
+    elif config.tool_filter == "fixed":
+        return list(config.fixed_tool_names or [])
+    return []
+
+
+def _auto_start_containers_for_tools(tool_names: List[str]):
+    """为指定工具列表自动启动容器"""
+    if not _plugin_manager:
+        return
+    from src.agent.tools import ExecContainerPlugin
+    for name in tool_names:
+        tool = _tool_registry.get_tool(name)
+        if not isinstance(tool, ExecContainerPlugin):
+            continue
+        if not tool.container_name:
+            continue
+        if tool._container:
+            continue
+        image = "alpine:latest"  # 默认镜像，compose 子工具不需要
+        volumes = {}
+        for m in getattr(tool, 'mount_dirs', []):
+            parts = m.split(':')
+            if len(parts) >= 2:
+                host_path = os.path.abspath(parts[0])
+                container_path = parts[1]
+                mode = parts[2] if len(parts) > 2 else 'rw'
+                volumes[host_path] = {'bind': container_path, 'mode': mode}
+        success = _plugin_manager.ensure_running(
+            tool.container_name, image,
+            volumes=volumes or None,
+        )
+        if success:
+            container = _plugin_manager.get_container(tool.container_name)
+            if container:
+                tool.bind_container(container)
+                logger.info(f"容器已自动启动: {tool.container_name} (工具: {name})")
+
+
+def _create_agent_for_type(agent_type: str, request_id: str) -> BaseAgent:
+    """根据 agent_type 动态创建 Agent — 完全数据驱动，无硬编码"""
     _get_or_init_components()
-    agent = StreamingWorkerAgent(
+    config = get_agent_config(agent_type)
+    if not config or not config.base_class:
+        raise ValueError(f"未知的 agent_type: {agent_type}")
+
+    tool_names = _resolve_tool_names(agent_type)
+
+    # 自动启动容器
+    if config.auto_start_containers:
+        _auto_start_containers_for_tools(tool_names)
+
+    # 创建 Agent 实例
+    agent = config.base_class(
         llm_client=_llm_client,
         context_manager=_context_manager,
         prompt_manager=_prompt_manager,
         tool_registry=_tool_registry,
-        tool_names=list(_worker_tool_names),
+        tool_names=tool_names,
     )
+
+    # 绑定 SSE 回调
     emit_start, emit_result, emit_thought = _make_emit_callbacks(request_id, _tool_registry)
     agent.on_tool_start = emit_start
     agent.on_tool_result = emit_result
     agent.on_thought = emit_thought
+
     return agent
 
 
-def _create_curator_agent(request_id: str) -> StreamingCuratorAgent:
-    _get_or_init_components()
+def _create_worker_agent(request_id: str):
+    """向后兼容别名"""
+    return _create_agent_for_type("worker", request_id)
 
-    # 自动启动 curator 容器（kb_container），确保知识库可写
-    curator_tool = _tool_registry.get_tool("curator")
-    if curator_tool and hasattr(curator_tool, 'container_name') and curator_tool.container_name:
-        if _plugin_manager:
-            from src.agent.tools import ExecContainerPlugin
-            if isinstance(curator_tool, ExecContainerPlugin) and not curator_tool._container:
-                # 转换 mount_dirs 为 Docker volumes 格式
-                volumes = {}
-                for m in getattr(curator_tool, 'mount_dirs', []):
-                    parts = m.split(':')
-                    if len(parts) >= 2:
-                        host_path = os.path.abspath(parts[0])
-                        container_path = parts[1]
-                        mode = parts[2] if len(parts) > 2 else 'rw'
-                        volumes[host_path] = {'bind': container_path, 'mode': mode}
-                success = _plugin_manager.ensure_running(
-                    curator_tool.container_name, "alpine:latest",
-                    volumes=volumes or None,
-                )
-                if success:
-                    container = _plugin_manager.get_container(curator_tool.container_name)
-                    if container:
-                        curator_tool.bind_container(container)
-                        logger.info(f"Curator 容器已自动启动: {curator_tool.container_name}")
 
-    agent = StreamingCuratorAgent(
-        llm_client=_llm_client,
-        context_manager=_context_manager,
-        prompt_manager=_prompt_manager,
-        tool_registry=_tool_registry,
-        tool_names=["curator"],
-    )
-    emit_start, emit_result, emit_thought = _make_emit_callbacks(request_id, _tool_registry)
-    agent.on_tool_start = emit_start
-    agent.on_tool_result = emit_result
-    agent.on_thought = emit_thought
-    return agent
+def _create_curator_agent(request_id: str):
+    """向后兼容别名"""
+    return _create_agent_for_type("curator", request_id)
 
 
 def _rebind_callbacks(agent: BaseAgent, request_id: str):

@@ -1,6 +1,4 @@
-from typing import Dict, Any, Optional, Type, NamedTuple
-from dataclasses import dataclass
-from enum import Enum
+from typing import Dict, Any, Optional, Type
 from abc import ABC, abstractmethod
 import json
 
@@ -11,7 +9,7 @@ from src.agent.context import ContextManager
 from src.agent.prompt import PromptManager
 from src.agent.tools import ToolRegistry
 from src.agent.types import *
-from src.llm import LLMClient, LLMConfig
+from src.llm import LLMClient
 
 logger = get_logger(__name__)
 

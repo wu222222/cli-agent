@@ -86,7 +86,7 @@
                 </div>
                 <div class="tool-desc">{{ tool.description }}</div>
                 <div class="tool-meta">
-                  <template v-if="tool.tool_type === 'exec'">
+                  <template v-if="tool.plugin_type === 'exec'">
                     <span>容器: <code>{{ tool.container_name }}</code></span>
                     <span class="tool-status" :class="tool.status">
                       {{ tool.status === 'running' ? '运行中' : tool.status === 'stopped' ? '已停止' : '未启动' }}
@@ -97,7 +97,7 @@
                   挂载: <code v-for="dir in tool.mount_dirs" :key="dir">{{ dir }}</code>
                 </div>
               </div>
-              <div class="tool-actions" v-if="tool.tool_type === 'exec'" @click.stop>
+              <div class="tool-actions" v-if="tool.plugin_type === 'exec'" @click.stop>
                 <button
                   v-if="tool.status !== 'running'"
                   class="action-btn start-btn"
@@ -141,18 +141,18 @@
                 <div class="tool-desc">{{ tool.description }}</div>
                 <div class="tool-meta">
                   <span>绑定动作: <code>{{ tool.bound_action }}</code></span>
-                  <template v-if="tool.tool_type === 'exec'">
+                  <template v-if="tool.plugin_type === 'exec'">
                     <span>容器: <code>{{ tool.container_name }}</code></span>
                     <span class="tool-status" :class="tool.status">
                       {{ tool.status === 'running' ? '运行中' : tool.status === 'stopped' ? '已停止' : '未启动' }}
                     </span>
                   </template>
                 </div>
-                <div class="tool-mounts" v-if="tool.tool_type === 'exec' && tool.mount_dirs && tool.mount_dirs.length">
+                <div class="tool-mounts" v-if="tool.plugin_type === 'exec' && tool.mount_dirs && tool.mount_dirs.length">
                   挂载: <code v-for="dir in tool.mount_dirs" :key="dir">{{ dir }}</code>
                 </div>
               </div>
-              <div class="tool-actions" v-if="tool.tool_type === 'exec'" @click.stop>
+              <div class="tool-actions" v-if="tool.plugin_type === 'exec'" @click.stop>
                 <button
                   v-if="tool.status !== 'running'"
                   class="action-btn start-btn"
@@ -189,7 +189,6 @@ const router = useRouter()
 interface ToolPreset {
   name: string
   description: string
-  tool_type: string
   plugin_type: string
   container_name: string
   status: string
@@ -396,7 +395,7 @@ async function saveConfig() {
 
     // 2. 自动启动已勾选的 exec 类型工具的容器
     const execToolsToStart = availableTools.value.filter(
-      t => selectedTools.value.includes(t.name) && t.tool_type === 'exec' && t.status !== 'running'
+      t => selectedTools.value.includes(t.name) && t.plugin_type === 'exec' && t.status !== 'running'
     )
     for (const tool of execToolsToStart) {
       try {

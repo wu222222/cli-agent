@@ -9,7 +9,7 @@ function getPluginStatus(name: string): string {
 
 function getPluginType(name: string): string {
   const plugin = store.plugins.find(p => p.name === name)
-  return plugin?.tool_type || ''
+  return plugin?.plugin_type || ''
 }
 
 async function fetchPlugins() {
@@ -59,7 +59,7 @@ const store = reactive({
   activeFilter: 'all',
   get filteredPlugins(): PluginDetail[] {
     if (store.activeFilter === 'all') return store.plugins
-    return store.plugins.filter(p => p.tool_type === store.activeFilter)
+    return store.plugins.filter(p => p.plugin_type === store.activeFilter)
   },
   getPluginStatus,
   getPluginType,

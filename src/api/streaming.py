@@ -63,13 +63,16 @@ def _make_emit_callbacks(request_id: str, tool_registry=None):
         tool = _get_tool(tool_name)
         if tool:
             description = tool.format_start(params)
-            tool_type = tool.execution_mode
+            plugin_type = getattr(tool, 'plugin_type', 'local')
+            # 使用 display_name 覆盖 agent_name（如 call_judge → "JudgeAgent"）
+            effective_agent = getattr(tool, 'display_name', '') or agent_name
         else:
             description = f"正在执行: {tool_name}"
-            tool_type = "local"
+            plugin_type = "local"
+            effective_agent = agent_name
         await queue.put({
             "event": "tool_start",
-            "data": {"agent": agent_name, "tool": tool_name, "tool_type": tool_type, "content": description}
+            "data": {"agent": effective_agent, "tool": tool_name, "tool_type": plugin_type, "content": description}
         })
 
     async def emit_tool_result(agent_name: str, tool_name: str, result: str):
@@ -79,17 +82,19 @@ def _make_emit_callbacks(request_id: str, tool_registry=None):
         tool = _get_tool(tool_name)
         if tool:
             formatted = tool.format_result(result)
-            tool_type = tool.execution_mode
+            plugin_type = getattr(tool, 'plugin_type', 'local')
+            effective_agent = getattr(tool, 'display_name', '') or agent_name
         else:
             formatted = result
-            tool_type = "local"
+            plugin_type = "local"
+            effective_agent = agent_name
         if formatted:
             command = _extract_command(tool_name, _last_params)
             await queue.put({
                 "event": "tool_result",
                 "data": {
-                    "agent": agent_name, "tool": tool_name,
-                    "tool_type": tool_type, "content": formatted,
+                    "agent": effective_agent, "tool": tool_name,
+                    "tool_type": plugin_type, "content": formatted,
                     "command": command,
                 }
             })
@@ -113,8 +118,9 @@ class StreamingWorkerAgent(WorkerAgent):
 
     async def _execute_action(self, action_type: ActionType, action_params: Dict[str, Any], tool_name: str = None) -> str:
         exec_name = tool_name or action_type.value
-        # call_judge 工具的执行结果显示为 JudgeAgent
-        agent_name = "JudgeAgent" if exec_name == "call_judge" else self.name
+        # 使用工具自描述的 display_name（如 call_judge → "JudgeAgent"），fallback 到 self.name
+        tool = self.tools.get_tool(exec_name) if self.tools else None
+        agent_name = (getattr(tool, 'display_name', '') or self.name) if tool else self.name
 
         # 发送当前 agent 的 thought（如果有）
         if self.on_thought and self.last_thought:
