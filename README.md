@@ -120,13 +120,26 @@ npm run dev
 
 ## 🖥️ 前端功能
 
+![完整效果图](docs/demonstration_picture/完整效果图.png)
+
 ### 工具设置页面 (`/tools`)
+
+![工具设置页面](docs/demonstration_picture/工具设置.png)
 
 工具管理页面，支持：
 - **工具勾选**: 为 WorkerAgent 配置可用工具列表（如 call_judge + mylab）
 - **容器启停**: 每个 exec 工具显示容器状态（运行中/已停止），支持一键启动/停止
 - **保存即生效**: 保存配置时自动启动已勾选的 exec 容器
 - **挂载路径显示**: 展示每个工具的 mount_dirs 配置
+
+### 命令确认页面 (`/confirm`)
+
+![命令确认页面](docs/demonstration_picture/命令确认.png)
+
+命令确认页面，支持：
+- **确认执行**: 确认执行待执行命令
+- **拒绝执行**: 拒绝执行待执行命令，后端自动清理挂起的 Agent 状态
+- **引导agent**: 用户键入信息，引导 Agent 执行任务
 
 ### 聊天交互页面 (`/`)
 

@@ -180,14 +180,26 @@ def _create_agent_for_type(agent_type: str, request_id: str) -> BaseAgent:
     if config.auto_start_containers:
         _auto_start_containers_for_tools(tool_names)
 
-    # 创建 Agent 实例
-    agent = config.base_class(
-        llm_client=_llm_client,
-        context_manager=_context_manager,
-        prompt_manager=_prompt_manager,
-        tool_registry=_tool_registry,
-        tool_names=tool_names,
-    )
+    # 确定使用哪个 streaming 包装类（StreamingXxxAgent 才有 SSE 回调能力）
+    # 映射在 services.py 维护（避免 agent.py 循环导入）
+    streaming_cls = STREAMING_WRAPPER_MAP.get(agent_type)
+    if streaming_cls:
+        agent = streaming_cls(
+            llm_client=_llm_client,
+            context_manager=_context_manager,
+            prompt_manager=_prompt_manager,
+            tool_registry=_tool_registry,
+            tool_names=tool_names,
+        )
+    else:
+        # judge 等不需要 streaming 的 Agent
+        agent = config.base_class(
+            llm_client=_llm_client,
+            context_manager=_context_manager,
+            prompt_manager=_prompt_manager,
+            tool_registry=_tool_registry,
+            tool_names=tool_names,
+        )
 
     # 绑定 SSE 回调
     emit_start, emit_result, emit_thought = _make_emit_callbacks(request_id, _tool_registry)
@@ -196,6 +208,14 @@ def _create_agent_for_type(agent_type: str, request_id: str) -> BaseAgent:
     agent.on_thought = emit_thought
 
     return agent
+
+
+# agent_type → Streaming 包装类映射（在 services.py 维护，避免循环导入）
+STREAMING_WRAPPER_MAP = {
+    "worker": StreamingWorkerAgent,
+    "curator": StreamingCuratorAgent,
+    # "judge" 不在此处 — JudgeAgent 不需要 SSE 回调
+}
 
 
 def _create_worker_agent(request_id: str):
