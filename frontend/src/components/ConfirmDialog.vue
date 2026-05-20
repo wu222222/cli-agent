@@ -33,6 +33,9 @@
     </div>
     <template #footer>
       <div class="confirm-actions">
+        <el-button @click="$emit('minimize')" style="margin-right: auto;">
+          稍后
+        </el-button>
         <el-button @click="$emit('cancel', guidance)">
           {{ guidance ? '拒绝 + 引导' : '拒绝' }}
         </el-button>
@@ -70,6 +73,7 @@ const guidancePlaceholder = computed(() =>
 defineEmits<{
   confirm: [guidance: string]
   cancel: [guidance: string]
+  minimize: []
 }>()
 </script>
 

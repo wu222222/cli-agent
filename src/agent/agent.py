@@ -274,7 +274,13 @@ class CuratorAgent(BaseAgent):
                 tool_name=tool_name,
             )
 
-            agent_resp.validate_params()
+            # 校验时优先用工具的独立 param_schema
+            tool_schema = None
+            if tool_name and self.tools:
+                t = self.tools.get_tool(tool_name)
+                if t and t.param_schema:
+                    tool_schema = t.param_schema
+            agent_resp.validate_params(tool_param_schema=tool_schema)
             return agent_resp
 
         except Exception as e:

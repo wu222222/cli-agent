@@ -19,6 +19,7 @@ function clearPending() {
   store.pendingThought = ''
   store.pendingCommandText = ''
   store.pendingToolName = ''
+  store.pendingMinimized = false
 }
 
 function clearMessages() {
@@ -35,6 +36,7 @@ const store = reactive({
   pendingThought: '',
   pendingCommandText: '',
   pendingToolName: '',
+  pendingMinimized: false,
   pushMessage,
   setPending,
   clearPending,

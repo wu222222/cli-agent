@@ -273,20 +273,19 @@ class ComposePlugin:
         import docker.errors
         registered = []
         for child_cfg in self.children_config:
-            # 新版 role 字段优先: exec / command / aux
-            role = child_cfg.get('role', None)
-            if role is not None:
-                if role == 'aux':
-                    logger.info(f"Compose 辅助容器 '{child_cfg.get('service_name')}' 跳过注册 (role=aux)")
-                    continue
-                child_type = role  # exec 或 command
-            else:
-                # 旧版兼容: type 字段 + register 布尔
-                child_type = child_cfg.get('type', 'exec')
-                if child_type not in ('exec', 'command'):
-                    continue
-                if child_type == 'exec' and not child_cfg.get('register', True):
-                    continue
+            # type 字段 (与顶层插件同构): exec / command / aux
+            child_type = child_cfg.get('type', None)
+            if child_type is None:
+                # 旧版兼容: role 字段
+                child_type = child_cfg.get('role', 'exec')
+            if child_type == 'aux':
+                logger.info(f"Compose aux container '{child_cfg.get('service_name')}' skipped (type=aux)")
+                continue
+            if child_type not in ('exec', 'command'):
+                continue
+            # 旧版 register: false 兼容
+            if child_type == 'exec' and not child_cfg.get('register', True):
+                continue
 
             service_name = child_cfg.get('service_name', '')
             if not service_name:

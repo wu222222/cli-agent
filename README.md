@@ -14,16 +14,14 @@
 
 ## ✨ 核心特性
 
-- 🤖 **多智能体协作 (Multi-Agent)**: 
-  - **Worker**: 负责任务推理与执行，思考过程实时可见。
-  - **Judge**: 负责对执行结果进行二次审计与质量把控（PASS/FAIL），思考过程附带在评审结果中。
-  - **Curator**: 自动总结成功经验，维护动态知识库。
-- 🔒 **插件化容器隔离**: 无默认沙盒，用户按需启动容器插件（mylab、alpine_shell 等），支持网络隔离与资源限制。
-- ⚙️ **确定性状态机 (FSM)**: 基于状态机管理 Agent 行为，逻辑清晰可追踪，拒绝"幻觉"导致的死循环。
-- 🛡️ **按工具安全拦截**: 每个 exec 工具独立配置 `requires_confirmation`，弹出确认对话框展示思考过程和命令。
-- 💭 **实时流式展示**: 通过 SSE 推送 Agent 思考过程（thought）、工具执行结果（tool_result）、确认请求（confirm）。
-- 🧠 **本地知识沉淀**: 自动从历史成功案例中提取经验，支持 Markdown 格式知识库更新。
-- 🌐 **Web 前端界面**: 提供直观的聊天式交互界面，支持工具设置（勾选工具、启停容器、配置挂载路径）。
+- 🤖 **多智能体协作 (Multi-Agent)**: Worker（任务执行）+ Judge（结果评审）+ Curator（知识管理）
+- 🔒 **配置驱动插件**: 新增插件只需编辑 `plugins.yaml`（9 个内置插件），不改代码。支持 exec / command / compose / local / network 五种类型。
+- ⚙️ **确定性状态机 (FSM)**: 基于状态机管理 Agent 行为，THINKING→WAITING_CONFIRMATION→EXECUTING→COMPLETED。
+- 🛡️ **按工具安全拦截**: 每个工具独立配置 `requires_confirmation`，弹出确认对话框展示工具名、思考过程和命令。
+- 💭 **实时流式展示**: SSE 推送 thought（思考）、tool_start、tool_result（长输出自动折叠）、confirm（含工具名）、final。
+- 📊 **上下文可视化**: 上下文面板实时显示消息衰减状态（完整/截断/摘要/遗忘），一键清空。
+- 🧠 **智能记忆衰减**: 工具结果按时老化：完整→截断→一行摘要→删除。每 6 步自动 LLM 压缩。user/error 消息永不遗忘。
+- 🔧 **可配容器参数**: `network_mode`（none/bridge）、`privileged`、`timeout_seconds` 按插件独立配置。
 
 ---
 
@@ -46,7 +44,8 @@
 ┌──────────────────▼──────────────────────────┐
 │           Agent Layer (FSM)                 │
 │  WorkerAgent / JudgeAgent / CuratorAgent    │
-│  StreamingWorkerAgent (SSE callbacks)       │
+│  AgentRegistry + AGENT_POLICIES             │
+│  ContextManager (decay/compress)            │
 └──────────────────┬──────────────────────────┘
                    │
 ┌──────────────────▼──────────────────────────┐
@@ -116,6 +115,8 @@ npm run dev
 
 打开浏览器访问 `http://localhost:5173`，进入聊天界面。点击"工具设置"可配置可用工具和启动容器。
 
+> 📖 新增插件详见 [plugin-guide.md](plugin-guide.md)
+
 ---
 
 ## 🖥️ 前端功能
@@ -145,23 +146,23 @@ npm run dev
 
 主聊天界面支持：
 - **自然语言输入**: 输入任意问题或指令，Agent 会自动分析并执行
-- **💭 思考气泡**: Agent 的推理过程以独立气泡实时展示
-- **⚙ 工具结果气泡**: 工具执行结果带命令参数和输出内容展示
-- **命令确认**: exec 工具执行前弹出确认对话框，展示思考过程和待执行命令，支持拒绝
-- **JudgeAgent 评审**: 评审结果中附带 JudgeAgent 的思考过程
-- **最终回答**: Agent 的完整回答以独立气泡展示
-- **Curator 命令**: 输入 `/summary` 可触发 CuratorAgent 整理对话历史
+- **💭 思考气泡**: Agent 推理过程实时展示
+- **⚙ 工具结果气泡**: 命令参数截断显示，长输出自动折叠（>10 行），JSON 自动格式化
+- **🔒 命令确认**: 弹出确认对话框展示工具名、思考过程和命令，支持拒绝+引导
+- **📊 上下文面板**: 实时显示每条消息的衰减阶段（🔒完整/✂️截断/📝摘要/❌遗忘）
+- **⌨ 命令提示**: 输入 `/` 自动匹配可用的 command 插件
+- **🗑 清空上下文**: 一键清空对话历史和上下文
 
 ---
 
 ## 🛡️ 安全策略 (Security)
 
-- **网络隔离**: 启动容器时默认添加 `--network none`，防止敏感数据外泄。
-- **路径受限**: 通过 mount_dirs 配置挂载目录（如 `./workspace:/workspace`），Agent 无法触碰宿主机系统文件。
-- **按工具确认**: 每个 exec 工具独立配置 `requires_confirmation`，弹出确认对话框展示 Agent 思考过程和待执行命令。
-- **拒绝机制**: 用户可随时拒绝命令执行，后端自动清理挂起的 Agent 状态。
-- **资源限制**: 严格限制容器的内存 (Memory Limit) 和 CPU 配额。
-- **超时保护**: 强制设置命令执行超时 (Timeout)，防止恶意脚本耗尽资源。
+- **网络隔离**: 默认 `network_mode: "none"`，需要联网的插件（如 kali）显式设 `"bridge"`。
+- **路径受限**: 通过 `mount_dirs` 配置挂载目录，Agent 无法触碰宿主机系统文件。
+- **按工具确认**: 每个工具独立配置 `requires_confirmation`，拒绝后可通过引导让 Agent 重新思考。
+- **超时保护**: 默认 30s，可按插件配置 `timeout_seconds`。docker exec + streaming 双层超时。
+- **权限控制**: 默认 `privileged: false`，nmap 等需要的工具显式开启。
+- **上下文衰减**: 消息按年龄自动截断/遗忘，user 和 error 永不丢失。
 
 ---
 
@@ -206,11 +207,11 @@ cli-agent/
 │   │   └── client.py         # DockerClientFactory
 │   └── llm/                  # LLM 客户端
 ├── config/
-│   └── plugins.yaml          # 插件容器配置
+│   ├── plugins.yaml          # 插件配置 v2（9 个插件）
+│   └── context_policy.yaml   # Agent 上下文策略
 ├── frontend/                 # Vue 3 前端
 │   ├── src/
-│   │   ├── views/            # 页面（ChatView / ToolsView / HistoryView）
-│   │   ├── components/       # 组件（MessageBubble / ConfirmDialog / ToolCard）
+│   │   ├── views/            # 页面（ChatView 含上下文面板 / ToolsView）
 │   │   ├── composables/      # 组合式函数（useSSE）
 │   │   ├── stores/           # 状态管理（chat / plugin）
 │   │   ├── api/              # API 客户端（agent / config）

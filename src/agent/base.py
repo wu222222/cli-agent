@@ -66,9 +66,18 @@ class BaseAgent(ABC):
             )
 
         if self.context_manager.should_compress():
-            await self._auto_compress()
+            self._fire_compress()
 
         return transition
+
+    def _fire_compress(self) -> None:
+        """Fire-and-forget: run compression in background, don't block Agent"""
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+            loop.create_task(self._auto_compress())
+        except RuntimeError:
+            pass
 
     async def _auto_compress(self) -> None:
         expired = self.context_manager.collect_expired_messages()

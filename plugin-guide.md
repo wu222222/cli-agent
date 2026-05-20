@@ -39,11 +39,11 @@ plugins.yaml
   └── plugins:
         ├── exec      → Agent 工具，LLM 自动选择调用
         ├── command   → 用户 /xxx 触发，不暴露给 Agent
-        ├── compose   → 多容器组，子服务按 role 注册
+        ├── compose   → 多容器组，子服务按 type 注册
         │   └── services:
-        │       ├── role: exec    → 注册为 Agent 工具
-        │       ├── role: command → 注册为用户命令
-        │       └── role: aux    → 辅助容器（不注册）
+        │       ├── type: exec    → 注册为 Agent 工具
+        │       ├── type: command → 注册为用户命令
+        │       └── type: aux    → 辅助容器（不注册）
         ├── local     → Python 函数，进程内执行
         └── network   → HTTP 服务（尚未实现）
 ```
@@ -249,7 +249,7 @@ networks:
   services:
     # Agent 工具 — 攻击机 shell
     - service_name: "attacker"
-      role: "exec"
+      type: "exec"
       agent_type: "worker"
       name: "my_lab_shell"
       description: "实验攻击机 — 可执行任意命令"
@@ -264,7 +264,7 @@ networks:
 
     # 用户命令 — 状态查询
     - service_name: "attacker"
-      role: "command"
+      type: "command"
       agent_type: "none"
       name: "lab_status"
       command_trigger: "/lab_status"
@@ -280,18 +280,18 @@ networks:
 
     # 辅助容器 — 靶机，不暴露给 Agent
     - service_name: "target1"
-      role: "aux"
+      type: "aux"
       description: "靶机 1 — 存放第一关 flag"
 
     # 辅助容器 — 数据库，不暴露给 Agent
     - service_name: "db"
-      role: "aux"
+      type: "aux"
       description: "PostgreSQL 数据库 — 实验数据存储"
 ```
 
-### role 字段说明
+### type 字段说明（compose 子服务）
 
-| role | 行为 | 前端展示 |
+| type | 行为 | 前端展示 |
 |------|------|---------|
 | `exec` | 注册为 Agent 工具，WorkerAgent 可调用 | ToolsView 可见，可启动/停止 |
 | `command` | 注册为用户命令，`/xxx` 触发 | ToolsView 可见，聊天框可触发 |
@@ -304,11 +304,11 @@ networks:
 ```yaml
 services:
   - service_name: "attacker"
-    role: "exec"         # Agent 可以调用 attacker 执行命令
+    type: "exec"         # Agent 可以调用 attacker 执行命令
     name: "lab_shell"
     ...
   - service_name: "attacker"
-    role: "command"      # 用户可以输入 /lab_status 查询状态
+    type: "command"      # 用户可以输入 /lab_status 查询状态
     name: "lab_status"
     command_trigger: "/lab_status"
     ...
@@ -401,6 +401,9 @@ if translate_tool:
 | `image` | 否 | 首次启动时自动拉取的镜像 |
 | `entrypoint_cmd` | ✅ | 容器内入口，通常 `"sh -c"` 或 `"bash -c"` |
 | `mount_dirs` | 否 | 挂载目录列表，格式 `["/host:/container:rw"]` |
+| `network_mode` | 否 | 网络模式：`"none"`=断网（默认），`"bridge"`=NAT 联网 |
+| `privileged` | 否 | 特权模式：`true`=开启（nmap 等需要），默认 `false` |
+| `timeout_seconds` | 否 | 命令超时秒数，默认 30（nmap 等慢工具设 120+） |
 | `parameters` | ✅ | 工具参数 schema（给 LLM 看） |
 | `required_params` | ✅ | 必填参数列表 |
 
@@ -416,14 +419,14 @@ if translate_tool:
 | 字段 | 必填 | 说明 |
 |------|------|------|
 | `compose_file` | ✅ | docker-compose.yml 的相对路径 |
-| `services` | ✅ | 子服务列表，每个 service 有 `service_name`、`role`、`name` 等 |
+| `services` | ✅ | 子服务列表，每个 service 有 `service_name`、`type`、`name` 等 |
 
 ### compose services 子字段
 
 | 字段 | 必填 | 说明 |
 |------|------|------|
 | `service_name` | ✅ | 对应 docker-compose.yml 中的 service 名 |
-| `role` | ✅ | `exec` / `command` / `aux` |
+| `type` | ✅ | `exec` / `command` / `aux`（与顶层插件 type 同构） |
 | `name` | exec/command 必填 | 注册到 ToolRegistry 的工具名 |
 | `command_trigger` | command 必填 | 触发词 |
 
@@ -455,7 +458,7 @@ if translate_tool:
 
 检查：
 1. `docker compose ps` → 确认所有容器都在运行
-2. `role: aux` 的容器不会出现在工具列表（这是预期行为）
+2. `type: aux` 的容器不会出现在工具列表（这是预期行为）
 3. `service_name` 必须与 docker-compose.yml 中的 service 名完全一致
 
 ### Q：可以在一个 YAML 配置里定义多个插件共享一个容器吗？
@@ -466,7 +469,7 @@ if translate_tool:
 
 ### Q：改了 YAML 后需要重启吗？
 
-需要。修改 `config/plugins.yaml` 后需要重启后端服务（方案 C 将支持热加载）。
+需要。修改 `config/plugins.yaml` 后需要重启后端服务。
 
 ### Q：如何删除一个插件？
 
@@ -479,6 +482,22 @@ if translate_tool:
 3. 在 YAML 中设置 `image: "my_image:latest"`
 4. 对于 compose 插件，在 docker-compose.yml 中用 `build:` 指令
 
+### Q：Kali / 渗透工具无法联网？
+
+添加 `network_mode: "bridge"` 字段（默认是 `"none"` 断网）。
+
+### Q：nmap 报 "Operation not permitted"？
+
+添加 `privileged: true` 字段。nmap 需要 raw socket 权限。
+
+### Q：命令经常超时？
+
+设置 `timeout_seconds` 字段（默认 30 秒）。nmap 等慢工具设为 120 或更高。
+
 ### Q：local 插件的 handler 怎么绑定？
 
 当前需要在 `src/api/services.py` 中手动绑定。方案 C 将支持在 YAML 中通过 `handler: "module.path:func_name"` 声明，实现零代码绑定。
+
+### Q：如何查看上下文状态？
+
+聊天页 header 点击"上下文"按钮，展开面板查看每条消息的衰减阶段（完整/截断/一行摘要/遗忘）。

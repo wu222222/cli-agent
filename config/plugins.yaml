@@ -79,18 +79,19 @@ plugins:
     agent_type: "worker"
     bound_action: "execute_command"
     requires_confirmation: false
-    description: "通过 SearXNG 搜索引擎搜索互联网信息"
-    container_name: "searxng"
-    image: "searxng/searxng:latest"
+    description: "互联网搜索工具 — 通过 DuckDuckGo 搜索网页信息，无需 API Key"
+    container_name: "search"
+    image: "search-tool:latest"
+    network_mode: "bridge"
     entrypoint_cmd: "python3 /app/search.py"
     mount_dirs: []
     category: "search"
     icon: "globe"
     parameters:
-      query:
+      command:
         type: "string"
-        description: "搜索关键词"
-    required_params: ["query"]
+        description: "搜索关键词（英文效果更好），如 'python tutorial'"
+    required_params: ["command"]
 
   - name: "cpp_python_dev"
     type: "exec"
@@ -209,7 +210,7 @@ plugins:
     services:
       # Agent 工具 — 攻击机 shell
       - service_name: "lab"
-        role: "exec"
+        type: "exec"
         agent_type: "worker"
         name: "ctf_shell"
         description: "攻击机 shell — 可执行任意命令，寻找并提交 flag"
@@ -226,7 +227,7 @@ plugins:
 
       # 用户命令 — 提交机状态查询
       - service_name: "submission"
-        role: "command"
+        type: "command"
         agent_type: "none"
         name: "ctf_status"
         command_trigger: "/ctf_status"
@@ -244,9 +245,9 @@ plugins:
 
       # 辅助容器 — 靶机（不暴露给 Agent）
       - service_name: "target1"
-        role: "aux"
+        type: "aux"
         description: "靶机 1 — 存放 flag1，仅 lab 容器内网可访问"
 
       - service_name: "target2"
-        role: "aux"
+        type: "aux"
         description: "靶机 2 — 存放 flag2，仅 lab 容器内网可访问"

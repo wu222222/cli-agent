@@ -529,17 +529,16 @@ async def list_composes():
             role = child_cfg.get('role', None)
             child_type = child_cfg.get('type', 'exec')  # 兼容旧字段
 
-            # 新版 role 字段: exec / command / aux
-            if role is not None:
-                if role == 'aux':
-                    continue  # 辅助容器不注册
-                child_type = role
-            else:
-                # 旧版兼容: type + register 字段
-                if child_type == 'exec' and not child_cfg.get('register', True):
-                    continue
-                if child_type not in ('exec', 'command'):
-                    continue
+            # type 字段优先（与顶层插件同构），role 兼容旧格式
+            child_type = child_cfg.get('type', None)
+            if child_type is None:
+                child_type = child_cfg.get('role', 'exec')
+            if child_type == 'aux':
+                continue
+            if child_type not in ('exec', 'command'):
+                continue
+            if child_type == 'exec' and not child_cfg.get('register', True):
+                continue
 
             child_name = child_cfg.get('name', '')
             service_name = child_cfg.get('service_name', '')

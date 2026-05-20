@@ -35,7 +35,7 @@
   - 容器默认不自动启动，用户在工具设置页面手动启动。
   - 保存工具配置时自动启动已勾选的 exec 容器。
   - 支持挂载目录配置（mount_dirs），如 alpine 默认挂载 `./workspace:/workspace`。
-- **权限限制**：容器默认禁用 --privileged 模式，限制 CPU 与内存配额，且使用 --network none 隔离。
+- **权限配置**：每个插件可独立配置 `network_mode`（`"none"` 安全隔离 / `"bridge"` 联网）、`privileged`（nmap 等需要 raw socket）、`timeout_seconds`（慢工具设更大值）。默认安全。
 
 ### D. 人机确认拦截层 (HITL - Human-in-the-loop)
 - 作为"物理防火墙"，在 LLM 发出工具执行请求与实际调用 Docker API 之间建立拦截机制。
@@ -47,14 +47,13 @@
 - **工具注册**：支持 YAML 配置文件（config/plugins.yaml）动态加载插件，也支持代码中注册 LocalTool。
 - **自描述格式化**：每个工具实现 `format_start()` 和 `format_result()` 方法，SSE 事件自动格式化展示。
 - **参数验证**：使用 Pydantic 模型进行参数验证，确保工具调用的正确性。
-- **ActionType 路由**：三种 ActionType（EXECUTE_COMMAND、LOCAL_CALL、STOP）用于状态机路由，具体工具名（mylab、call_judge 等）通过 `tool_name` 字段指定。
-- **内置工具**：
-  - **call_judge**：调用 JudgeAgent 进行结果评审（LocalTool，绑定 LOCAL_CALL）。
-- **插件工具**（通过 plugins.yaml 配置）：
-  - **mylab**：自定义实验环境容器。
-  - **alpine_shell**：Alpine Linux 轻量级 shell。
-  - **grep_knowledge**：知识库查询容器。
-  - **search**：SearXNG 搜索引擎容器。
+- **ActionType 路由**：三种 ActionType（EXECUTE_COMMAND、LOCAL_CALL、STOP）用于状态机路由，具体工具名通过 `tool_name` 字段指定。
+- **AgentRegistry**：Agent 类型注册表，新增 Agent 类型只需 `register_agent(AgentConfig(...))`。当前注册：worker / judge / curator。
+- **插件工具**（通过 plugins.yaml 配置，共 9 个）：
+  - exec: `alpine_shell`、`mylab`、`grep_knowledge`、`search`、`cpp_python_dev`、`kali`
+  - command: `curator`（`/summary` 触发）
+  - local: `call_judge`（评审）、`context_compress`（上下文压缩）
+  - compose: `ctf_lab`（含 ctf_shell + ctf_status + aux 靶机）
 
 ## 3. 工作流逻辑 (Workflow)
 
@@ -62,15 +61,16 @@
 2. **推理 (Think)**：WorkerAgent 调用 LLM 分析需求，决定调用哪个工具（如 mylab），生成命令参数。Thought 通过 SSE 实时推送到前端显示为 💭 气泡。
 3. **拦截 (Intercept)**：如果工具的 `requires_confirmation` 为 true，系统弹出确认对话框，展示 Agent 思考过程和待执行命令。
 4. **执行 (Act)**：用户确认后，指令被发送至对应容器执行。若用户拒绝，后端清理挂起的 Agent。
-5. **反馈 (Observe)**：捕获容器的 stdout/stderr，通过 SSE `tool_result` 事件推送到前端，显示命令和输出。
-6. **评审 (Review)**：WorkerAgent 调用 call_judge 工具，JudgeAgent 对结果进行评审，其思考过程附带在评审结果中返回。
-7. **总结 (Output)**：WorkerAgent 根据执行结果和评审意见生成最终回答，通过 SSE `final` 事件推送。
+5. **反馈 (Observe)**：捕获容器的 stdout/stderr，通过 SSE `tool_result` 事件推送到前端，显示命令和输出。长输出自动折叠（>10 行），JSON 自动格式化。
+6. **评审 (Review)**：WorkerAgent 调用 call_judge 工具，JudgeAgent 对结果进行评审。
+7. **压缩 (Compress)**：每 6 步自动触发 `context_compress`，将过期消息压缩为摘要，节省 token。
+8. **总结 (Output)**：WorkerAgent 根据执行结果生成最终回答，通过 SSE `final` 事件推送。
 
 ### SSE 事件类型
-- `thought`：Agent 思考过程（含 agent 名称和 thought 内容）
-- `tool_start`：工具开始执行（含 tool_name、tool_type、params）
+- `thought`：Agent 思考过程
+- `tool_start`：工具开始执行（含 agent、tool_name、tool_type）
 - `tool_result`：工具执行结果（含 tool_name、command、formatted content）
-- `confirm`：等待用户确认（含 thought、command、agent）
+- `confirm`：等待用户确认（含 thought、command、tool_name、agent）
 - `final`：任务完成（含最终回答）
 - `error`：执行错误
 
@@ -94,20 +94,21 @@
 ## 5. 安全策略 (Security Policy)
 
 - **路径隔离**：仅允许挂载特定的 /workspace 目录，禁止访问宿主机根目录。
-- **网络隔离**：默认启动容器时添加 --network none，防止 Agent 意外泄露 API Keys 或建立反弹 Shell。
-- **超时控制**：为每个指令设置 timeout（如 30 秒），防止逻辑陷阱或死循环耗尽资源。
+- **网络隔离**：默认 `network_mode: "none"`，需要联网的插件（如 kali）显式设 `"bridge"`。
+- **超时控制**：默认 30 秒，可通过 `timeout_seconds` 按插件配置。docker exec 内层 + streaming 外层双重超时。
+- **权限控制**：默认 `privileged: false`，需要 raw socket 的工具（如 nmap）显式开启。
+- **上下文衰减**：消息按年龄自动截断/摘要/遗忘，user 和 error 消息永不丢失。每 6 步自动压缩。
 - **指令脱敏**：在反馈给 LLM 之前，自动过滤执行结果中可能包含的敏感环境变量。
 - **人机确认**：所有命令执行前都需要用户显式确认，确保用户对执行的操作有完全的控制权。
 
 ## 6. 扩展方向 (Future Scaling)
 
-- **多容器协同**：为不同的任务启动预装不同环境的容器镜像（已通过 plugins.yaml 实现）。
-- **文件系统快照**：支持在执行危险操作前对容器进行快照，以便随时回滚。
-- **知识库增强**：扩展 CuratorAgent 的能力，支持更复杂的知识管理和检索功能。
-- **多Agent协作**：实现更复杂的多Agent协作模式，解决更复杂的任务。
-- **实时流式推送**：已通过 SSE 实现 thought/tool_result/confirm/final 事件的实时推送。
-- **用户权限管理**：添加用户认证和权限控制功能。
-- **NetworkContainerPlugin**：完善网络服务调用工具类型，支持 HTTP API 插件。
+- **多容器协同**：已通过 plugins.yaml compose 类型实现。
+- **Hook 系统**：Tool 级 `on_register`/`on_unregister` 钩子，local 插件零代码绑定。
+- **NetworkContainerPlugin**：完善网络服务调用工具类型。
+- **容器引用计数**：共享容器（如 kb_container）的生命周期管理。
+- **YAML 热加载**：修改配置后无需重启服务。
+- **Plugin 市场**：社区贡献的插件 Dockerfile + YAML 模板库。
 
 ## 7. 实现细节 (Implementation Details)
 
@@ -182,13 +183,14 @@
 ```
 ├── src/
 │   ├── agent/                # Agent 核心逻辑
-│   │   ├── agent.py          # Worker/Judge/Curator Agent 实现
-│   │   ├── base.py           # Agent 基类（含 last_thought）
-│   │   ├── context.py        # 上下文管理器
-│   │   ├── prompt.py         # Prompt 管理器（动态 Schema 生成）
-│   │   ├── tools.py          # 工具体系（Tool/LocalTool/ExecContainerPlugin/ToolRegistry）
-│   │   ├── statemachine.py   # 状态机实现（Worker/Judge/Curator）
-│   │   └── types.py          # 类型定义（ActionType/AgentState/AgentResponse 等）
+│   │   ├── agent.py          # Worker/Judge/Curator Agent + AGENT_POLICIES
+│   │   ├── base.py           # Agent 基类（含 step/auto_compress）
+│   │   ├── context.py        # 上下文管理器（含记忆衰减/智能摘要）
+│   │   ├── prompt.py         # Prompt 管理器（动态条件化生成）
+│   │   ├── tools.py          # 工具体系（5 种类型 + ComposePlugin + ToolRegistry）
+│   │   ├── statemachine.py   # 状态机实现
+│   │   ├── types.py          # 类型定义（含 ContextPolicy）
+│   │   └── registry.py       # Agent 类型注册表
 │   ├── api/                  # FastAPI 后端 API
 │   │   ├── main.py           # App 入口
 │   │   ├── models.py         # Pydantic 请求/响应模型
@@ -202,20 +204,15 @@
 │   │   └── client.py         # 异步 LLMClient
 │   └── logger/               # 日志系统
 ├── config/
-│   └── plugins.yaml          # 插件容器配置（mylab/alpine_shell/grep_knowledge/search）
+│   ├── plugins.yaml          # 插件配置 v2（9 个插件）
+│   └── context_policy.yaml   # Agent 上下文策略（worker/judge/curator）
 ├── frontend/                 # Vue 3 前端应用
 │   ├── src/
 │   │   ├── views/            # 页面视图
-│   │   │   ├── ChatView.vue          # 聊天页面（含确认对话框）
-│   │   │   ├── ToolsView.vue         # 工具设置页面（勾选工具、启停容器）
-│   │   │   ├── HistoryView.vue       # 历史记录页面
-│   │   │   └── SettingsView.vue      # 设置页面
-│   │   ├── components/       # 组件
-│   │   │   ├── MessageBubble.vue     # 消息气泡（text/thought/tool_result）
-│   │   │   ├── ConfirmDialog.vue     # 命令确认对话框
-│   │   │   └── ToolCard.vue          # 工具卡片组件
+│   │   │   ├── ChatView.vue          # 聊天页（命令提示/确认/上下文面板/清空）
+│   │   │   └── ToolsView.vue         # 工具设置页（插件启停/compose管理）
 │   │   ├── composables/      # 组合式函数
-│   │   │   └── useSSE.ts             # SSE 事件处理（简洁模式）
+│   │   │   └── useSSE.ts             # SSE 事件处理（thought/tool_result/confirm/final）
 │   │   ├── stores/           # 状态管理
 │   │   │   ├── chat.ts               # 聊天状态（messages/pending）
 │   │   │   └── plugin.ts             # 插件状态
@@ -225,11 +222,19 @@
 │   │   └── types/            # TypeScript 类型定义
 │   └── package.json
 ├── knowledge_base/           # 知识库目录
-├── workspace/                # 工作目录（alpine_shell 默认挂载）
+├── workspace/                # 工作目录（默认挂载）
+├── labs/                     # 实验室环境
+│   ├── ctf_lab/              # CTF 靶场（docker-compose）
+│   └── kali/                 # Kali 渗透测试（Dockerfile）
+├── code_task_prompt/         # 任务文档（task1-18.md）
 ├── .env.example              # 环境变量示例
 └── environment.yml           # Conda 环境配置
 ```
 
 ## 10. 总结
 
-Safe-CLI-Agent 是一个安全、可靠的命令行助手，通过 Docker 容器隔离和人机确认机制，确保 AI 在执行系统级指令时的安全性。系统采用多Agent架构，实现了任务执行、结果评审和知识管理等功能，为用户提供了一个智能、安全的命令行工具。
+Safe-CLI-Agent 是一个安全、可靠的 CLI 助手。核心设计理念：
+- **配置驱动**：新增插件只需编辑 `plugins.yaml`，不改代码
+- **Docker 隔离**：可配网络/特权/超时，默认安全
+- **多 Agent 协作**：Worker 执行 + Judge 评审 + Curator 整理
+- **记忆衰减**：上下文自动截断/摘要/遗忘，长任务不爆 token

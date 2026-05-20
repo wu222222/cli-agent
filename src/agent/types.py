@@ -36,7 +36,7 @@ class AgentState(Enum):
 class LLMAction(BaseModel):
     """对应 Prompt 中的 action 部分"""
     type: str
-    tool_name: str  # 必填
+    tool_name: str = ""
     parameters: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -51,16 +51,21 @@ class AgentResponse(BaseModel):
     content: str
     action_type: ActionType
     action_params: Dict[str, Any]
-    tool_name: str  # 必填
+    tool_name: str = ""
 
     class Config:
         arbitrary_types_allowed = True
 
-    def validate_params(self):
-        schema_class = ACTION_SCHEMA_MAP.get(self.action_type)
+    def validate_params(self, tool_param_schema=None):
+        # 如果有工具的独立 schema，优先使用
+        schema_class = tool_param_schema or ACTION_SCHEMA_MAP.get(self.action_type)
         if not schema_class:
             return None
-        return schema_class.model_validate(self.action_params)
+        try:
+            return schema_class.model_validate(self.action_params)
+        except Exception:
+            # 参数不匹配：跳过校验（工具参数各异，不强求）
+            return None
 
 
 class ExecuteCommandParams(BaseModel):

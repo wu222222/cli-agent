@@ -129,12 +129,18 @@ class ContextManager:
     def _format_message(self, msg: Message, agent_name: str,
                         effective_content: str) -> Dict[str, Any]:
         """格式化一条消息为 LLM 可读格式"""
-        item = {"role": msg.role, "content": effective_content}
+        # summary 角色不被 LLM API 接受，映射为 user + 前缀
+        if msg.role == "summary":
+            item = {
+                "role": "user",
+                "content": f"[历史摘要]\n{effective_content}",
+            }
+        else:
+            item = {"role": msg.role, "content": effective_content}
+
         if msg.role == "tool":
             item["tool_call_id"] = msg.tool_call_id
             item["name"] = msg.tool_name
-        elif msg.role == "summary":
-            item["name"] = "context_summary"
         elif msg.sender != agent_name and msg.role != "system":
             item["name"] = msg.sender
         return item
@@ -231,7 +237,9 @@ class ContextManager:
             })
 
         for msg in self.messages:
-            item = {"role": msg.role, "content": msg.content}
+            role = "user" if msg.role == "summary" else msg.role
+            content = f"[历史摘要]\n{msg.content}" if msg.role == "summary" else msg.content
+            item = {"role": role, "content": content}
             if msg.role == "tool":
                 item["tool_call_id"] = msg.tool_call_id
                 item["name"] = msg.tool_name

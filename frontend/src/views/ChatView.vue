@@ -60,13 +60,21 @@
         </div>
 
         <ConfirmDialog
-          :visible="!!chatStore.pendingCommand"
+          :visible="!!chatStore.pendingCommand && !chatStore.pendingMinimized"
           :command="chatStore.pendingCommandText || chatStore.pendingCommand"
           :thought="chatStore.pendingThought"
           :tool-name="chatStore.pendingToolName"
           @confirm="handleConfirm"
           @cancel="handleCancel"
+          @minimize="chatStore.pendingMinimized = true"
         />
+
+        <!-- 最小化的确认浮动条 -->
+        <div v-if="chatStore.pendingCommand && chatStore.pendingMinimized" class="confirm-chip" @click="chatStore.pendingMinimized = false">
+          <span>待确认: {{ chatStore.pendingToolName || 'tool' }}</span>
+          <span class="confirm-chip-cmd">{{ (chatStore.pendingCommandText || chatStore.pendingCommand).slice(0, 40) }}...</span>
+          <span class="confirm-chip-hint">点击恢复</span>
+        </div>
 
         <div class="chat-input">
           <div class="command-hints" v-if="showHints">
@@ -93,11 +101,19 @@
               ref="textareaRef"
             ></textarea>
             <button
+              v-if="!chatStore.isThinking"
               class="send-button"
               @click="handleSend"
-              :disabled="!inputMessage.trim() || chatStore.isThinking"
+              :disabled="!inputMessage.trim()"
             >
               发送
+            </button>
+            <button
+              v-else
+              class="stop-button"
+              @click="stopAgent"
+            >
+              ⏹ 终止
             </button>
           </div>
         </div>
@@ -120,7 +136,7 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
 const router = useRouter()
 const chatStore = useChatStore()
-const { connect } = useSSE()
+const { connect, disconnect } = useSSE()
 
 // 防止 handleConfirm 清除 pending 时触发 handleCancel
 let isConfirming = false
@@ -438,6 +454,16 @@ async function clearContext() {
   }
 }
 
+function stopAgent() {
+  disconnect()
+  chatStore.isThinking = false
+  chatStore.pushMessage({
+    role: 'system', content: '任务已被用户终止',
+    timestamp: new Date().toLocaleTimeString(),
+    thought: '', type: 'text', agent: 'System',
+  })
+}
+
 function scrollToBottom() {
   nextTick(() => {
     if (messagesContainer.value) {
@@ -667,6 +693,22 @@ onActivated(() => {
   cursor: not-allowed;
 }
 
+.stop-button {
+  padding: 8px 18px;
+  background: #f56c6c;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+.stop-button:hover {
+  background: #f78989;
+}
+
 /* 上下文面板 */
 .context-panel {
   max-height: 300px;
@@ -719,5 +761,22 @@ onActivated(() => {
 .ctx-stage-truncated { border-left: 2px solid #e6a23c; }
 .ctx-stage-oneline { border-left: 2px solid #f56c6c; }
 .ctx-stage-forgotten { opacity: 0.3; border-left: 2px solid rgba(255,255,255,0.05); }
+
+/* 确认浮动条 */
+.confirm-chip {
+  margin: 8px 16px; padding: 8px 14px;
+  background: rgba(230, 162, 60, 0.15);
+  border: 1px solid rgba(230, 162, 60, 0.3);
+  border-radius: 8px;
+  display: flex; align-items: center; gap: 10px;
+  cursor: pointer; font-size: 13px;
+  transition: all 0.2s;
+}
+.confirm-chip:hover { background: rgba(230, 162, 60, 0.25); }
+.confirm-chip-cmd {
+  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: rgba(255,255,255,0.5); font-family: 'Fira Code', monospace; font-size: 11px;
+}
+.confirm-chip-hint { color: #e6a23c; font-size: 12px; flex-shrink: 0; }
 
 </style>
