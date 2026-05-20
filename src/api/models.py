@@ -53,6 +53,7 @@ class ComposePluginInfo(BaseModel):
     category: str = "other"
     icon: str = "default"
     children: List[PluginInfo] = []
+    has_regenerate: bool = False
 
 
 class PluginActionResponse(BaseModel):

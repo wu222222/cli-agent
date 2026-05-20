@@ -17,9 +17,16 @@
         <div class="tool-result-header">
           <span class="tool-result-icon">⚙</span>
           <span class="tool-result-name">{{ message.toolName || 'tool' }}</span>
-          <span v-if="message.command" class="tool-result-cmd">$ {{ message.command }}</span>
+          <span v-if="message.command" class="tool-result-cmd">$ {{ truncateCommand(message.command) }}</span>
         </div>
-        <pre class="tool-result-output">{{ message.content }}</pre>
+        <pre class="tool-result-output" :class="{ collapsed: needsCollapse && isCollapsed }">{{ displayContent }}</pre>
+        <button
+          v-if="needsCollapse"
+          class="collapse-toggle"
+          @click="isCollapsed = !isCollapsed"
+        >
+          {{ isCollapsed ? `展开全部 (${lineCount} 行)` : '收起' }}
+        </button>
       </div>
       <ToolCard v-else-if="message.type === 'tool_card' && message.toolState" :tool-state="message.toolState" />
       <pre v-else-if="message.type === 'code'" class="tool-output">{{ message.content }}</pre>
@@ -29,12 +36,58 @@
 </template>
 
 <script setup lang="ts">
+import { ref, computed } from 'vue'
 import type { Message } from '@/types'
 import ToolCard from './ToolCard.vue'
 
-defineProps<{
+const props = defineProps<{
   message: Message
 }>()
+
+// 命令截断
+const MAX_CMD_LEN = 120
+function truncateCommand(cmd: string): string {
+  if (cmd.length <= MAX_CMD_LEN) return cmd
+  return cmd.slice(0, MAX_CMD_LEN) + '...'
+}
+
+// 长输出折叠
+const isCollapsed = ref(true)
+const COLLAPSE_LINES = 10
+const COLLAPSE_CHARS = 3000
+
+const needsCollapse = computed(() => {
+  if (props.message.type !== 'tool_result') return false
+  const content = props.message.content || ''
+  const lines = content.split('\n').length
+  return lines > COLLAPSE_LINES || content.length > COLLAPSE_CHARS
+})
+
+const lineCount = computed(() => {
+  return (props.message.content || '').split('\n').length
+})
+
+const displayContent = computed(() => {
+  if (props.message.type !== 'tool_result') return props.message.content
+  const content = props.message.content || ''
+
+  // 尝试 JSON 格式化
+  const trimmed = content.trim()
+  if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+    try {
+      const parsed = JSON.parse(trimmed)
+      return JSON.stringify(parsed, null, 2)
+    } catch {
+      // 不是有效 JSON，保持原样
+    }
+  }
+
+  // 折叠：只显示前 COLLAPSE_LINES 行
+  if (needsCollapse.value && isCollapsed.value) {
+    return content.split('\n').slice(0, COLLAPSE_LINES).join('\n')
+  }
+  return content
+})
 </script>
 
 <style scoped>
@@ -171,6 +224,30 @@ defineProps<{
   font-family: 'Fira Code', 'Consolas', monospace;
   font-size: 11px;
   color: #79bbff;
+}
+
+.tool-result-output.collapsed {
+  max-height: 400px;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+}
+
+.collapse-toggle {
+  display: block;
+  margin-top: 4px;
+  padding: 4px 12px;
+  background: rgba(64, 158, 255, 0.12);
+  border: 1px solid rgba(64, 158, 255, 0.2);
+  border-radius: 4px;
+  color: #79bbff;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.collapse-toggle:hover {
+  background: rgba(64, 158, 255, 0.2);
 }
 
 .tool-result-output {

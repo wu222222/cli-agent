@@ -19,7 +19,7 @@ from .services import (
     _get_or_init_components, _create_worker_agent, _create_curator_agent,
     _rebind_callbacks, run_agent_with_streaming, run_with_pending_check,
     get_pending_agent, set_pending_agent, history_store,
-    get_plugin_manager, get_tool_registry,
+    get_plugin_manager, get_tool_registry, get_context_manager,
     get_worker_tool_names, set_worker_tool_names,
 )
 
@@ -180,6 +180,56 @@ async def get_history():
     return history_store
 
 
+@router.get("/agent/context")
+async def get_context_status():
+    """获取上下文状态（用于前端可视化面板）"""
+    _get_or_init_components()
+    cm = get_context_manager()
+    if not cm:
+        return {"step": 0, "policy": None, "messages": [], "summary_count": 0}
+
+    policy = cm.policy
+    messages = []
+    for msg in cm.messages:
+        age = cm.current_step - msg.step_index
+
+        # 判断衰减阶段
+        if msg.importance == "critical" or msg.role == "user":
+            stage = "locked"
+        elif msg.role == "summary":
+            stage = "summary"
+        elif msg.role == "tool":
+            if age <= policy.tool_full_turns:
+                stage = "full"
+            elif age <= policy.tool_truncate_turns:
+                stage = "truncated"
+            elif age <= policy.tool_max_turns:
+                stage = "oneline"
+            else:
+                stage = "forgotten"
+        else:
+            stage = "full"
+
+        messages.append({
+            "role": msg.role,
+            "sender": msg.sender,
+            "tool_name": msg.tool_name,
+            "step_index": msg.step_index,
+            "age": age,
+            "stage": stage,
+            "preview": msg.content[:80].replace('\n', ' '),
+            "content_len": len(msg.content),
+        })
+
+    return {
+        "step": cm.current_step,
+        "policy": policy.model_dump(),
+        "messages": messages,
+        "summary_count": len(cm.context_summaries),
+        "total_count": len(cm.messages),
+    }
+
+
 @router.delete("/agent/history")
 async def clear_history():
     history_store.clear()
@@ -236,17 +286,6 @@ def _build_plugin_list(registry, manager, include_call_judge: bool = False) -> L
     return plugins
 
 
-@router.get("/presets", response_model=List[PluginInfo])
-async def get_presets_endpoint():
-    """获取所有可用插件预设（含 call_judge）"""
-    _get_or_init_components()
-    registry = get_tool_registry()
-    manager = get_plugin_manager()
-    if not registry:
-        return []
-    return _build_plugin_list(registry, manager, include_call_judge=True)
-
-
 @router.post("/plugins/{name}/start", response_model=PluginActionResponse)
 async def start_plugin(name: str):
     _get_or_init_components()
@@ -296,7 +335,9 @@ async def start_plugin(name: str):
             mode = parts[2] if len(parts) > 2 else 'rw'
             volumes[host_path] = {'bind': container_path, 'mode': mode}
 
-    success = manager.ensure_running(tool.container_name, image, volumes=volumes or None)
+    network_mode = getattr(tool, 'network_mode', 'none')
+    privileged = getattr(tool, 'privileged', False)
+    success = manager.ensure_running(tool.container_name, image, volumes=volumes or None, network_mode=network_mode, privileged=privileged)
     if success:
         container = manager.get_container(tool.container_name)
         if container:
@@ -512,7 +553,7 @@ async def list_composes():
                 agent_type=child_cfg.get('agent_type', 'none' if child_type == 'command' else 'worker'),
                 container_name=f"{cname}-{service_name}-1",
                 status=status,
-                bound_action="execute_command",
+                bound_action=child_cfg.get('bound_action', 'execute_command'),
                 requires_confirmation=child_cfg.get('requires_confirmation', False),
                 parameters=child_cfg.get('parameters'),
                 required_params=child_cfg.get('required_params'),
@@ -521,6 +562,10 @@ async def list_composes():
                 command_trigger=child_cfg.get('command_trigger', ''),
                 parent_compose=cname,
             ))
+        lab_dir = os.path.dirname(os.path.abspath(compose.compose_file))
+        gen_script = os.path.join(lab_dir, "generate_lab.sh")
+        has_regenerate = os.path.exists(gen_script)
+
         result.append(ComposePluginInfo(
             name=compose.name,
             description=compose.description,
@@ -529,6 +574,7 @@ async def list_composes():
             category=compose.category,
             icon=compose.icon,
             children=children,
+            has_regenerate=has_regenerate,
         ))
     return result
 

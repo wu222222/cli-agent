@@ -209,13 +209,15 @@ class PluginContainerManager:
     def is_available(self) -> bool:
         return self.client is not None
 
-    def ensure_running(self, container_name: str, image: str = "", volumes: Optional[Dict[str, Dict[str, str]]] = None) -> bool:
+    def ensure_running(self, container_name: str, image: str = "", volumes: Optional[Dict[str, Dict[str, str]]] = None, network_mode: str = "none", privileged: bool = False) -> bool:
         """确保插件容器在后台运行
-        
+
         Args:
             container_name: 容器名称
             image: 容器镜像
             volumes: 卷挂载配置，格式: {host_path: {"bind": container_path, "mode": "ro/rw"}}
+            network_mode: 网络模式，"none"=断网（默认安全），"bridge"=NAT 联网
+            privileged: 特权模式，nmap 等需要 raw socket 的工具必须开启
         """
         if not self.is_available():
             logger.error("Docker 不可用，无法管理插件容器")
@@ -248,7 +250,8 @@ class PluginContainerManager:
                 name=container_name,
                 detach=True,
                 tty=True,
-                network="none",  # 安全：零网络暴露
+                network=network_mode,
+                privileged=privileged,
                 volumes=volumes or {},
                 command="sh -c 'tail -f /dev/null'"
             )

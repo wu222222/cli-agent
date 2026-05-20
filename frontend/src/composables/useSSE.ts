@@ -32,6 +32,7 @@ export function useSSE() {
           requestId,
           thought: data.thought,
           command: data.command,
+          toolName: data.tool_name || '',
         })
       },
 

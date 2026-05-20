@@ -28,10 +28,9 @@ class BaseAgent(ABC):
         self.context_manager = context_manager or ContextManager()
         self.prompt_manager = prompt_manager or PromptManager()
         self.tools = tool_registry or ToolRegistry()
-        
+
         self._setup_system_prompt()
 
-        # 核心：每个子类可以有自己的状态机定义
         self.state_machine = self._create_state_machine()
         self.state_machine.set_agent(self)
 
@@ -40,49 +39,56 @@ class BaseAgent(ABC):
 
     @abstractmethod
     def _setup_system_prompt(self) -> None:
-        """子类需实现：设置系统的提示"""
         pass
 
     @abstractmethod
     def _create_state_machine(self) -> 'BaseStateMachine':
-        """子类需实现：返回该 Agent 专用的状态机"""
         pass
 
     @abstractmethod
-    def _prepare_context(self,input:str | dict | Message = None) -> None:
-        """上下文控制流"""
+    def _prepare_context(self, input: str | dict | Message = None) -> None:
         pass
 
     async def step(self) -> StateTransition:
-        """
-        单步执行核心逻辑：执行 -> 获取建议状态 -> 转换
-        """
-        # 1. 检查是否已经结束
         if self.state_machine.is_in_state(AgentState.COMPLETED):
             return StateTransition(state=AgentState.COMPLETED)
 
-        # 2. 调用当前状态的 execute，获取状态机的“建议”
-        # 例如：ThinkingState 执行完后返回一个指向 WAITING_CONFIRMATION 的 transition
+        self.context_manager.current_step += 1
+
         transition = await self.state_machine.execute()
-        
-        # 3. 真正触发状态机的转换逻辑（执行 on_exit/on_enter）
-        # 注意：这里的 transition.state 是建议的目标状态
+
         success = self.state_machine.transition(transition.state, transition.data)
-        
+
         if not success:
-            # 如果转换失败（比如 can_transition_to 校验没过），返回错误状态
             return StateTransition(
-                state=AgentState.ERROR, 
+                state=AgentState.ERROR,
                 data=ErrorData(error_message=f"Illegal transition to {transition.state}")
             )
 
-        # 4. 返回当前的 transition 对象，供 Orchestrator 或 API 层判断
+        if self.context_manager.should_compress():
+            await self._auto_compress()
+
         return transition
 
-    async def run(self,input:str | dict | Message = None) -> str:
-        """通用的 ReAct 循环调度逻辑"""
+    async def _auto_compress(self) -> None:
+        expired = self.context_manager.collect_expired_messages()
+        if not expired:
+            return
+        try:
+            text = "\n".join(
+                f"[{m.role}] {m.sender}: {m.content[:200]}"
+                for m in expired
+            )
+            compress_tool = self.tools.get_tool("context_compress") if self.tools else None
+            if compress_tool and compress_tool.handler:
+                await compress_tool.handler(messages_to_compress=text)
+            self.context_manager.mark_compressed(expired)
+            logger.info(f"Auto-compress done: {len(expired)} messages -> summary")
+        except Exception as e:
+            logger.warning(f"Auto-compress failed: {e}")
+
+    async def run(self, input: str | dict | Message = None) -> str:
         self._prepare_context(input)
-        # 统一从起始状态开始（假设子类状态机都有初始状态）
         self.state_machine.transition(AgentState.THINKING)
 
         try:
@@ -92,55 +98,48 @@ class BaseAgent(ABC):
                 data = transition.data or {}
 
                 if not self.state_machine.transition(next_state, data):
-                    return f"[{self.name}] 状态转换错误"
+                    return f"[{self.name}] state transition error"
 
                 if self.state_machine.is_in_state(AgentState.COMPLETED):
                     return self._get_final_result()
-                
-                if self.state_machine.is_in_state(AgentState.ERROR):
-                    return f"[{self.name}] 执行出错"
 
-            return "达到最大迭代次数"
+                if self.state_machine.is_in_state(AgentState.ERROR):
+                    return f"[{self.name}] execution error"
+
+            return "Max iterations reached"
         except Exception as e:
             self.state_machine.transition(AgentState.ERROR, data=ErrorData(error_message=str(e)))
-            return f"系统崩溃: {str(e)}"
+            return f"System error: {str(e)}"
 
     @abstractmethod
     async def _think(self) -> AgentResponse:
-        """具体的 LLM 调用和解析逻辑"""
         pass
 
     def _parse_action(self, response_text: str) -> Optional[LLMOutput]:
-        """从 LLM 原始响应中提取并校验 JSON 结构"""
         try:
             json_str = self._extract_json(response_text)
             if not json_str:
                 return None
 
-            # strict=False 允许字符串中的控制字符（换行符等），兼容 LLM heredoc 输出
             data = json.loads(json_str, strict=False)
             return LLMOutput.model_validate(data)
         except (json.JSONDecodeError, IndexError, ValidationError) as e:
-            logger.warning(f"JSON 解析或结构校验失败: {e}")
+            logger.warning(f"JSON parse or validation failed: {e}")
             if isinstance(e, json.JSONDecodeError) and e.pos:
-                logger.debug(f"JSON 错误位置附近: {repr(json_str[max(0,e.pos-30):e.pos+30])}")
+                logger.debug(f"JSON near error: {repr(json_str[max(0,e.pos-30):e.pos+30])}")
             return None
 
     @staticmethod
     def _extract_json(text: str) -> Optional[str]:
-        """从 LLM 响应中提取 JSON 字符串，正确处理嵌套的代码块"""
-        # 方法 1: 找 ```json 开头，然后从末尾找最后一个 ```
         json_start = text.find('```json')
         if json_start >= 0:
             content_start = text.find('\n', json_start)
             if content_start < 0:
                 content_start = json_start + 7
-            # 从末尾找最后一个 ```
             last_close = text.rfind('```')
             if last_close > content_start:
                 return text[content_start:last_close].strip()
 
-        # 方法 2: 找 ``` 开头（非 json）
         code_start = text.find('```')
         if code_start >= 0:
             content_start = text.find('\n', code_start)
@@ -152,7 +151,6 @@ class BaseAgent(ABC):
                 if candidate.startswith('{'):
                     return candidate
 
-        # 方法 3: 直接找 { 开始到末尾的 }
         start = text.find('{')
         if start >= 0:
             end = text.rfind('}')
@@ -162,43 +160,37 @@ class BaseAgent(ABC):
         return text.strip()
 
     async def _execute_action(self, action_type: ActionType, action_params: Dict[str, Any], tool_name: Optional[str] = None) -> str:
-        """执行action，优先使用 tool_name 调用具体工具"""
         exec_name = tool_name or action_type.value
-        logger.info(f"执行工具: {exec_name} (action: {action_type}), 参数: {action_params}")
+        logger.info(f"Execute tool: {exec_name} (action: {action_type}), params: {action_params}")
         result = await self.tools.run(exec_name, action_params)
-        logger.info(f"工具执行结果: {result}")
+        logger.info(f"Tool result: {result}")
         return result
 
     def _get_final_result(self) -> str:
-        """默认从 context 拿结果，子类可重写"""
         return self.context_manager.get_final_answer()
 
+
 class State(ABC):
-    """状态基类，定义状态的钩子函数"""
-    
     def __init__(self, state_machine: 'BaseStateMachine'):
         self.state_machine = state_machine
-        self.state = None  # 子类需要设置具体的状态
-        self.agent: Optional[BaseAgent] = None  # 由状态机设置
-    
+        self.state = None
+        self.agent: Optional[BaseAgent] = None
+
     @abstractmethod
     def on_enter(self, data: Optional[StateData] = None):
-        """进入状态时调用"""
         pass
-    
+
     @abstractmethod
     def on_exit(self, data: Optional[StateData] = None):
-        """退出状态时调用"""
         pass
-    
+
     @abstractmethod
     async def execute(self, data: Optional[StateData] = None) -> StateTransition:
-        """执行状态逻辑并返回下一个状态"""
         pass
-    
+
     def can_transition_to(self, new_state: AgentState) -> bool:
-        """检查是否可以转换到新状态"""
         return True
+
 
 class BaseStateMachine(ABC):
     def __init__(self, initial_state: AgentState):
@@ -214,19 +206,15 @@ class BaseStateMachine(ABC):
 
     @abstractmethod
     def _setup_states(self):
-        """子类需实现：配置该状态机特有的状态类映射"""
         pass
 
     def is_in_state(self, state_enum: AgentState) -> bool:
-        """检查当前状态是否为指定状态"""
         return self._current_state_enum == state_enum
 
     def transition(self, new_state_enum: AgentState, data: Optional[StateData] = None) -> bool:
-        """通用的状态切换逻辑（包含你之前写的 context 记录逻辑）"""
         if new_state_enum not in self._states:
             return False
-        
-        # 统一的日志记录
+
         if self.agent and self.agent.context_manager:
             self.agent.context_manager.add_state_trace(
                 agent_name=self.agent.name,

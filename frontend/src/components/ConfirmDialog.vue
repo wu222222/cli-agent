@@ -15,6 +15,9 @@
         <div class="confirm-thought-label">💭 思考过程</div>
         <div class="confirm-thought-text">{{ thought }}</div>
       </div>
+      <div v-if="toolName" class="confirm-tool-name">
+        执行工具：<code>{{ toolName }}</code>
+      </div>
       <div class="confirm-command-section">
         <div class="confirm-command-label">即将执行的命令：</div>
         <pre class="confirm-command">{{ command }}</pre>
@@ -48,6 +51,7 @@ const props = defineProps<{
   visible: boolean
   command: string
   thought?: string
+  toolName?: string
 }>()
 
 const guidance = ref('')
@@ -93,6 +97,20 @@ defineEmits<{
   font-size: 14px;
   line-height: 1.6;
   color: rgba(255, 255, 255, 0.9);
+}
+
+.confirm-tool-name {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.confirm-tool-name code {
+  padding: 2px 8px;
+  background: rgba(64, 158, 255, 0.15);
+  border-radius: 4px;
+  color: #79bbff;
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 12px;
 }
 
 .confirm-command-section {

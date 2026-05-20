@@ -92,6 +92,46 @@ plugins:
         description: "搜索关键词"
     required_params: ["query"]
 
+  - name: "cpp_python_dev"
+    type: "exec"
+    agent_type: "worker"
+    bound_action: "execute_command"
+    requires_confirmation: true
+    description: "C++/Python 开发环境 — 支持编译 C++ 代码和运行 Python 脚本，可用于开发和测试小型项目"
+    container_name: "cpp_python_dev"
+    image: "cpp-python-dev:latest"
+    entrypoint_cmd: "bash -c"
+    mount_dirs:
+      - "./workspace:/workspace:rw"  # 挂载本地工作目录
+    category: "shell"
+    icon: "code"
+    parameters:
+      command:
+        type: "string"
+        description: "要执行的命令，如 'g++ main.cpp -o app && ./app' 或 'python3 script.py'"
+    required_params: ["command"]
+
+  - name: "kali"
+    type: "exec"
+    agent_type: "worker"
+    bound_action: "execute_command"
+    requires_confirmation: true
+    description: "Kali Linux 渗透测试环境 — 内置 nmap、nikto、sqlmap、gobuster、hydra、dirb、wfuzz、searchsploit、john、enum4linux 等工具，用于安全审计和漏洞挖掘"
+    container_name: "kali_pentest"
+    image: "kali-pentest:latest"
+    entrypoint_cmd: "bash -c"
+    network_mode: "bridge"
+    privileged: true
+    timeout_seconds: 120
+    mount_dirs: ["./workspace:/workspace:rw"]
+    category: "shell"
+    icon: "target"
+    parameters:
+      command:
+        type: "string"
+        description: "要执行的 Kali 命令，如 'nmap -sV target_ip'"
+    required_params: ["command"]
+
   # ============================
   # command 插件 — 用户快捷命令
   # ============================
@@ -114,6 +154,21 @@ plugins:
         type: "string"
         description: "在知识库中执行的 Shell 命令"
     required_params: ["command"]
+
+  - name: "context_compress"
+    type: "local"
+    agent_type: "worker"
+    bound_action: "local_call"
+    requires_confirmation: false
+    description: "上下文压缩工具 — 将旧的历史消息压缩为简洁摘要，减少 token 消耗。当上下文过长时主动调用。"
+    display_name: "ContextCompress"
+    category: "ai"
+    icon: "compress"
+    parameters:
+      messages_to_compress:
+        type: "string"
+        description: "需要压缩的历史消息文本"
+    required_params: ["messages_to_compress"]
 
   # ============================
   # local 插件 — 进程内函数

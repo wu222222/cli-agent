@@ -11,6 +11,25 @@ from src.agent.context import ContextManager
 from src.agent.prompt import PromptManager
 from src.agent.tools import ToolRegistry
 
+# Agent 策略预设
+AGENT_POLICIES = {
+    "worker": ContextPolicy(
+        tool_full_turns=2, tool_truncate_turns=5, tool_max_turns=8,
+        summary_enabled=True, summary_interval=6,
+        keep_user_messages=True, keep_errors=True,
+    ),
+    "judge": ContextPolicy(
+        tool_full_turns=0, tool_truncate_turns=0, tool_max_turns=3,
+        summary_enabled=False,
+        keep_user_messages=True, keep_errors=True,
+    ),
+    "curator": ContextPolicy(
+        tool_full_turns=0, tool_truncate_turns=3, tool_max_turns=20,
+        summary_enabled=False,
+        keep_user_messages=True, keep_errors=True,
+    ),
+}
+
 
 logger = get_logger(__name__)
 
@@ -25,8 +44,11 @@ class WorkerAgent(BaseAgent):
         prompt_manager: Optional[PromptManager] = None,
         tool_registry: Optional[ToolRegistry] = None,
         tool_names: Optional[list] = None,
+        context_policy: Optional[ContextPolicy] = None,
     ):
         self._tool_names = tool_names
+        if context_policy and context_manager:
+            context_manager.policy = context_policy
         super().__init__(name, llm_client, context_manager, prompt_manager, tool_registry)
 
     def _setup_system_prompt(self) -> None:
@@ -88,9 +110,9 @@ class WorkerAgent(BaseAgent):
             # 强制限制：如果配置了 tool_names，LLM 选择的工具必须在列表内
             # 但 STOP 动作不受限制（LLM 可以随时选择停止）
             if self._tool_names and action_type != ActionType.STOP and tool_name not in self._tool_names:
-                logger.warning(f"WorkerAgent LLM 选择了 '{tool_name}'，但仅允许 {self._tool_names}，设为 STOP")
-                action_params = {"answer": f"当前可用工具为 {self._tool_names}，无法使用 '{tool_name}'。请告知用户。"}
+                logger.warning(f"WorkerAgent LLM 选择了 '{tool_name}'，但仅允许 {self._tool_names}，优雅降为 STOP")
                 action_type = ActionType.STOP
+                action_params = {"answer": llm_output.thought or "任务已完成"}
                 tool_name = "stop"
 
             agent_resp = AgentResponse(

@@ -29,12 +29,11 @@ class PromptManager:
 **重要规则**：
 - `type` 字段：只能是 `execute_command`、`local_call`、`stop` 三个值之一
   - 使用容器工具（如 mylab、alpine_shell）时，type 必须是 `execute_command`
-  - 使用本地工具（如 call_judge）时，type 必须是 `local_call`
-  - 结束对话时，type 必须是 `stop`
-- `tool_name` 字段：**必填**，指定具体使用哪个工具（见下方工具列表）
+  - 使用本地工具时，type 必须是 `local_call`（仅当本地工具在工具列表中时可用）
+  - 结束对话时，type 必须是 `stop`（总结已完成的所有工作即可 STOP，不必额外调用评审工具）
+- `tool_name` 字段：**必填**，指定具体使用哪个工具（见下方工具列表中的可选值）
 - `parameters` 字段：工具的参数
-- **示例**：使用 mylab 执行命令 → `{{"type": "execute_command", "tool_name": "mylab", "parameters": {{"command": "ls"}}}}`
-- **示例**：调用评审 → `{{"type": "local_call", "tool_name": "call_judge", "parameters": {{"final_answer": "...", "evidence_summary": "..."}}}}`
+- **示例**：使用 shell 执行命令 → `{{"type": "execute_command", "tool_name": "alpine_shell", "parameters": {{"command": "ls"}}}}`
 JSON 格式规范：
 如果需要换行,必须使用 \\n 代替物理换换行
 '''
@@ -83,6 +82,17 @@ JSON 格式规范：
         if availability_notes:
             availability_section = "\n## 环境限制\n" + "\n".join(availability_notes) + "\n"
 
+        # 只有当 call_judge 在工具列表中时才建议调用
+        has_judge = tool_names and "call_judge" in tool_names
+        judge_note = ""
+        if has_judge:
+            judge_note = "\n- 在 stop 之前，强烈建议调用 call_judge 评审结果是否合理。"
+        elif tool_names is None:
+            # 未限制工具列表时，call_judge 默认可用
+            # 检查 registry 中是否有 call_judge
+            if tool_registry and tool_registry.get_tool("call_judge"):
+                judge_note = "\n- 在 stop 之前，强烈建议调用 call_judge 评审结果是否合理。"
+
         prompt = f"""你是一个智能命令行助手，具备自我推理和工具调用能力。
 
         ## 核心原则
@@ -92,8 +102,7 @@ JSON 格式规范：
 
         ## 处理规范
         - 如果你发现结果违背常识，请抛弃常识，尊重结果。
-        - 你的职责是反映系统真实状态，而非强制让世界符合常识。
-        - 在 stop 之前，强烈建议调用 call_judge 工具（如果可用），判断结果是否合理。
+        - 你的职责是反映系统真实状态，而非强制让世界符合常识。{judge_note}
         - **tool_name 字段必填**，必须指定具体使用哪个工具。
 
         {availability_section}

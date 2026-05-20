@@ -127,15 +127,31 @@ class StateTransition(BaseModel):
 
 
 class Message(BaseModel):
-    role: Literal["user", "assistant", "system", "tool"] = Field(default="assistant")
+    role: Literal["user", "assistant", "system", "tool", "summary"] = Field(default="assistant")
     content: str
     sender: str
     receivers: List[str] = Field(default_factory=lambda: ["*"])
     tool_call_id: Optional[str] = None
     tool_name: Optional[str] = None
+    # === 记忆衰减 ===
+    step_index: int = 0           # 在第几步产生（越小越老）
+    importance: str = "normal"    # "critical"=永不遗忘, "normal"=正常衰减
 
     class Config:
         arbitrary_types_allowed = True
+
+
+class ContextPolicy(BaseModel):
+    """每种 Agent 的上下文管理策略"""
+    tool_full_turns: int = 2         # 工具结果保留完整的轮数
+    tool_truncate_turns: int = 5     # 截断保留的轮数
+    tool_max_turns: int = 8          # 彻底删除的轮数
+    truncate_head_lines: int = 50    # 截断保留前 N 行
+    truncate_tail_lines: int = 10    # 截断保留后 N 行
+    summary_enabled: bool = True     # 是否启用 LLM 摘要压缩
+    summary_interval: int = 6        # 每 N 步触发一次摘要
+    keep_user_messages: bool = True  # user 消息永远不丢
+    keep_errors: bool = True         # error 消息永远不丢
 
 
 class StateTrace(BaseModel):

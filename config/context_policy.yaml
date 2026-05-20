@@ -1,0 +1,35 @@
+# Agent 上下文管理策略配置
+# 每个 Agent 类型可独立配置消息遗忘/截断/压缩策略
+
+worker:
+  tool_full_turns: 2       # 工具结果保留完整的轮数（age <= 2 = 完整）
+  tool_truncate_turns: 5   # 截断保留的轮数（2 < age <= 5 = 截断）
+  tool_max_turns: 8        # 彻底删除的轮数（5 < age <= 8 = 一行摘要，age > 8 = 删除）
+  truncate_head_lines: 50  # 截断时保留前 N 行
+  truncate_tail_lines: 10  # 截断时保留后 N 行
+  summary_enabled: true    # 启用 LLM 智能摘要压缩
+  summary_interval: 6      # 每 N 步触发一次摘要
+  keep_user_messages: true # user 消息永远不丢失
+  keep_errors: true        # 错误消息永远不丢失
+
+judge:
+  tool_full_turns: 0       # Judge 不需要完整的工具结果
+  tool_truncate_turns: 0   # 立即截断
+  tool_max_turns: 3        # 快速忘记
+  truncate_head_lines: 20
+  truncate_tail_lines: 5
+  summary_enabled: false   # Judge 不需要摘要
+  summary_interval: 0
+  keep_user_messages: true
+  keep_errors: true
+
+curator:
+  tool_full_turns: 0       # Curator 也不需要完整工具输出
+  tool_truncate_turns: 3
+  tool_max_turns: 20       # 长时间保留
+  truncate_head_lines: 30
+  truncate_tail_lines: 5
+  summary_enabled: false   # Curator 自己就是做整理的
+  summary_interval: 0
+  keep_user_messages: true
+  keep_errors: true

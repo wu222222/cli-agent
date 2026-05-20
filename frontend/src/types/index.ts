@@ -13,7 +13,7 @@ export interface ToolEventData {
 }
 
 export type ToolStatus = 'running' | 'completed' | 'error'
-export type ToolType = 'exec' | 'network' | 'local'
+export type ToolType = 'exec' | 'command' | 'network' | 'local'
 
 export interface ToolCardState {
   id: string
@@ -71,18 +71,19 @@ export interface PluginInfo {
   parent_compose?: string
   command_trigger?: string  // 仅 command 类型，如 "/summary"
   display_name?: string     // 前端/SSE 显示名
-}
-
-export interface PluginDetail extends PluginInfo {
+  // === 后端总是返回 ===
   bound_action?: string
   requires_confirmation?: boolean
-  image?: string
-  entrypoint_cmd?: string
   mount_dirs?: string[]
   parameters?: Record<string, { type: string; description: string }>
   required_params?: string[]
   category?: string
   icon?: string
+}
+
+export interface PluginDetail extends PluginInfo {
+  image?: string
+  entrypoint_cmd?: string
 }
 
 export interface ComposePluginInfo {
@@ -93,6 +94,7 @@ export interface ComposePluginInfo {
   category: string
   icon: string
   children: PluginInfo[]
+  has_regenerate: boolean  // 是否有 flag 重生成脚本
 }
 
 export interface PluginActionResponse {

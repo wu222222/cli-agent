@@ -42,6 +42,9 @@ class Tool(BaseModel):
     container_name: str = ""
     entrypoint_cmd: str = "sh -c"
     mount_dirs: List[str] = Field(default_factory=list)
+    network_mode: str = "none"          # "none"=断网（默认安全）, "bridge"=NAT联网
+    privileged: bool = False            # True=特权模式（nmap等需要raw socket的工具）
+    timeout_seconds: int = 30           # 命令执行超时（秒），nmap 等慢工具设为更大值
 
     # === 扩展钩子（方案 C 填充实现） ===
     _on_register: Optional[Callable] = None     # async (tool, registry, manager) -> None
@@ -164,11 +167,11 @@ class ExecContainerPlugin(Tool):
                             stderr=True,
                         )
                     ),
-                    timeout=30,
+                    timeout=self.timeout_seconds,
                 )
             except asyncio.TimeoutError:
-                logger.warning(f"ExecContainerPlugin '{self.name}' 执行超时 (30s)")
-                return f"错误: 命令执行超时 (30秒)。命令可能遍历了过大的文件系统。请缩小搜索范围。"
+                logger.warning(f"ExecContainerPlugin '{self.name}' 执行超时 ({self.timeout_seconds}s)")
+                return f"错误: 命令执行超时 ({self.timeout_seconds}秒)。"
 
             stdout = output.decode('utf-8', errors='replace') if output else ""
 
@@ -321,6 +324,9 @@ class ComposePlugin:
                 category=child_cfg.get('category', 'other'),
                 icon=child_cfg.get('icon', 'default'),
                 display_name=child_cfg.get('display_name', ''),
+                network_mode=child_cfg.get('network_mode', 'none'),
+                privileged=child_cfg.get('privileged', False),
+                timeout_seconds=child_cfg.get('timeout_seconds', 30),
             )
             child_tool.bind_container(container)
             child_tool._parent_compose = self.name
@@ -460,6 +466,9 @@ class ToolRegistry:
             container_name = cfg.get('container_name', '')
             entrypoint_cmd = cfg.get('entrypoint_cmd', 'sh -c')
 
+            network_mode = cfg.get('network_mode', 'none')
+            privileged = cfg.get('privileged', False)
+
             plugin = ExecContainerPlugin(
                 name=name,
                 description=description,
@@ -472,6 +481,9 @@ class ToolRegistry:
                 container_name=container_name,
                 entrypoint_cmd=entrypoint_cmd,
                 mount_dirs=mount_dirs,
+                network_mode=network_mode,
+                privileged=privileged,
+                timeout_seconds=cfg.get('timeout_seconds', 30),
                 category=category,
                 icon=icon,
                 command_trigger=command_trigger,

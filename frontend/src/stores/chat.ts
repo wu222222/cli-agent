@@ -5,11 +5,12 @@ function pushMessage(msg: Message) {
   store.messages.push(msg)
 }
 
-function setPending(data: { content: string; requestId: string; thought?: string; command?: string }) {
+function setPending(data: { content: string; requestId: string; thought?: string; command?: string; toolName?: string }) {
   store.pendingCommand = data.content
   store.pendingRequestId = data.requestId
   store.pendingThought = data.thought || ''
   store.pendingCommandText = data.command || ''
+  store.pendingToolName = data.toolName || ''
 }
 
 function clearPending() {
@@ -17,6 +18,7 @@ function clearPending() {
   store.pendingRequestId = ''
   store.pendingThought = ''
   store.pendingCommandText = ''
+  store.pendingToolName = ''
 }
 
 function clearMessages() {
@@ -32,6 +34,7 @@ const store = reactive({
   pendingRequestId: '',
   pendingThought: '',
   pendingCommandText: '',
+  pendingToolName: '',
   pushMessage,
   setPending,
   clearPending,

@@ -17,7 +17,7 @@
       <div class="tools-content">
         <div class="tools-section">
           <h2>工具与插件管理</h2>
-          <p class="section-desc">勾选 WorkerAgent 工具后点击"保存配置"。命令插件和容器插件可单独启停。</p>
+          <p class="section-desc">勾选 Agent 工具后点击"保存配置"（未运行的容器将自动启动）。命令插件和容器插件可单独启停。</p>
 
           <div class="tool-list">
             <!-- Compose 组插件 -->
@@ -58,7 +58,7 @@
                     <button class="action-btn reset-btn" :disabled="comp._resetting" @click="resetCompose(comp)">
                       {{ comp._resetting ? '重置中...' : '重置' }}
                     </button>
-                    <button class="action-btn regen-btn" :disabled="comp._regenerating" @click="regenCompose(comp)">
+                    <button v-if="comp.has_regenerate" class="action-btn regen-btn" :disabled="comp._regenerating" @click="regenCompose(comp)">
                       {{ comp._regenerating ? '生成中...' : '重新生成 Flag' }}
                     </button>
                   </template>
@@ -66,7 +66,7 @@
               </div>
             </div>
 
-            <!-- 命令型插件（非 WorkerAgent 工具） -->
+            <!-- 命令型插件（非 Agent 工具） -->
             <div class="tool-section-label" v-if="commandPlugins.length">
               <span class="section-icon">📖</span> 命令插件
             </div>
@@ -86,7 +86,7 @@
                 </div>
                 <div class="tool-desc">{{ tool.description }}</div>
                 <div class="tool-meta">
-                  <template v-if="tool.plugin_type === 'exec'">
+                  <template v-if="tool.plugin_type === 'exec' || tool.plugin_type === 'command'">
                     <span>容器: <code>{{ tool.container_name }}</code></span>
                     <span class="tool-status" :class="tool.status">
                       {{ tool.status === 'running' ? '运行中' : tool.status === 'stopped' ? '已停止' : '未启动' }}
@@ -97,7 +97,7 @@
                   挂载: <code v-for="dir in tool.mount_dirs" :key="dir">{{ dir }}</code>
                 </div>
               </div>
-              <div class="tool-actions" v-if="tool.plugin_type === 'exec'" @click.stop>
+              <div class="tool-actions" v-if="tool.plugin_type === 'exec' || tool.plugin_type === 'command'" @click.stop>
                 <button
                   v-if="tool.status !== 'running'"
                   class="action-btn start-btn"
@@ -117,12 +117,12 @@
               </div>
             </div>
 
-            <!-- WorkerAgent 工具 -->
-            <div class="tool-section-label" v-if="workerTools.length">
-              <span class="section-icon">⚙</span> WorkerAgent 工具
+            <!-- Agent 工具 -->
+            <div class="tool-section-label" v-if="agentTools.length">
+              <span class="section-icon">⚙</span> Agent 工具
             </div>
             <div
-              v-for="tool in workerTools"
+              v-for="tool in agentTools"
               :key="tool.name"
               class="tool-card"
               :class="{ selected: selectedTools.includes(tool.name) }"
@@ -141,7 +141,7 @@
                 <div class="tool-desc">{{ tool.description }}</div>
                 <div class="tool-meta">
                   <span>绑定动作: <code>{{ tool.bound_action }}</code></span>
-                  <template v-if="tool.plugin_type === 'exec'">
+                  <template v-if="tool.plugin_type === 'exec' || tool.plugin_type === 'command'">
                     <span>容器: <code>{{ tool.container_name }}</code></span>
                     <span class="tool-status" :class="tool.status">
                       {{ tool.status === 'running' ? '运行中' : tool.status === 'stopped' ? '已停止' : '未启动' }}
@@ -152,7 +152,7 @@
                   挂载: <code v-for="dir in tool.mount_dirs" :key="dir">{{ dir }}</code>
                 </div>
               </div>
-              <div class="tool-actions" v-if="tool.plugin_type === 'exec'" @click.stop>
+              <div class="tool-actions" v-if="tool.plugin_type === 'exec' || tool.plugin_type === 'command'" @click.stop>
                 <button
                   v-if="tool.status !== 'running'"
                   class="action-btn start-btn"
@@ -181,30 +181,16 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import type { PluginDetail } from '@/types'
 import api from '@/api/agent'
 import { regenerateCompose } from '@/api/config'
 
 const router = useRouter()
 
-interface ToolPreset {
-  name: string
-  description: string
-  plugin_type: string
-  container_name: string
-  status: string
-  bound_action: string
-  requires_confirmation: boolean
-  mount_dirs: string[]
-  category: string
-  icon: string
-  _starting?: boolean
-  _stopping?: boolean
-}
-
-const availableTools = ref<ToolPreset[]>([])
-const selectedTools = ref<string[]>([])
+const availableTools = ref<(PluginDetail & { _starting?: boolean; _stopping?: boolean })[]>([])
 const saving = ref(false)
 const saved = ref(false)
+const selectedTools = ref<string[]>([])
 
 interface ComposeItem {
   name: string
@@ -226,7 +212,7 @@ const commandPlugins = computed(() =>
   availableTools.value.filter(t => t.plugin_type === 'command')
 )
 
-const workerTools = computed(() =>
+const agentTools = computed(() =>
   availableTools.value.filter(t => t.plugin_type !== 'command')
 )
 
@@ -260,14 +246,14 @@ async function loadConfig() {
       api.get('/plugins'),
       api.get('/composes'),
     ])
-    const workerTools = toolsResp.data.available_tools || []
+    const agentTools = toolsResp.data.available_tools || []
     const allPlugins = pluginsResp.data || []
 
-    // WorkerAgent 工具列表（可勾选）
-    availableTools.value = workerTools
+    // Agent 工具列表（可勾选）
+    availableTools.value = agentTools
     selectedTools.value = toolsResp.data.tool_names || []
 
-    // 补充 command 类型插件（不可勾选为 WorkerAgent 工具，但可启停容器）
+    // 补充 command 类型插件（不可勾选为 Agent 工具，但可启停容器）
     const cmdPlugins = allPlugins.filter((p: any) => p.plugin_type === 'command')
     for (const cmd of cmdPlugins) {
       if (!availableTools.value.find((t: any) => t.name === cmd.name)) {
@@ -282,7 +268,7 @@ async function loadConfig() {
   }
 }
 
-async function startContainer(tool: ToolPreset) {
+async function startContainer(tool: PluginDetail & { _starting?: boolean; _stopping?: boolean }) {
   tool._starting = true
   try {
     const resp = await api.post(`/plugins/${tool.name}/start`)
@@ -298,7 +284,7 @@ async function startContainer(tool: ToolPreset) {
   }
 }
 
-async function stopContainer(tool: ToolPreset) {
+async function stopContainer(tool: PluginDetail & { _starting?: boolean; _stopping?: boolean }) {
   tool._stopping = true
   try {
     const resp = await api.post(`/plugins/${tool.name}/stop`)

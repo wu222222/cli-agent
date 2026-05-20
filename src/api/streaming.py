@@ -131,18 +131,27 @@ class StreamingWorkerAgent(WorkerAgent):
             await self.on_tool_start(agent_name, exec_name, action_params)
 
         try:
+            tool_timeout = self._get_tool_timeout(exec_name)
             result = await asyncio.wait_for(
                 self.tools.run(exec_name, action_params),
-                timeout=TOOL_CALL_TIMEOUT,
+                timeout=tool_timeout,
             )
         except asyncio.TimeoutError:
-            result = f"错误: 工具 '{exec_name}' 调用超时 ({TOOL_CALL_TIMEOUT}秒)。请尝试更简单的命令。"
-            logger.warning(f"工具 '{exec_name}' 调用超时 ({TOOL_CALL_TIMEOUT}s)")
+            result = f"错误: 工具 '{exec_name}' 调用超时 ({self._get_tool_timeout(exec_name)}秒)。"
+            logger.warning(f"工具 '{exec_name}' 调用超时")
 
         if self.on_tool_result:
             await self.on_tool_result(agent_name, exec_name, result)
 
         return result
+
+    def _get_tool_timeout(self, tool_name: str) -> int:
+        """读取工具配置的 timeout_seconds + 10s 缓冲"""
+        if self.tools:
+            t = self.tools.get_tool(tool_name)
+            if t:
+                return getattr(t, 'timeout_seconds', 30) + 10
+        return TOOL_CALL_TIMEOUT
 
 
 class StreamingCuratorAgent(CuratorAgent):
@@ -163,13 +172,14 @@ class StreamingCuratorAgent(CuratorAgent):
             await self.on_tool_start(self.name, exec_name, action_params)
 
         try:
+            tool_timeout = self._get_tool_timeout(exec_name)
             result = await asyncio.wait_for(
                 self.tools.run(exec_name, action_params),
-                timeout=TOOL_CALL_TIMEOUT,
+                timeout=tool_timeout,
             )
         except asyncio.TimeoutError:
-            result = f"错误: 工具 '{exec_name}' 调用超时 ({TOOL_CALL_TIMEOUT}秒)。请尝试更简单的命令。"
-            logger.warning(f"工具 '{exec_name}' 调用超时 ({TOOL_CALL_TIMEOUT}s)")
+            result = f"错误: 工具 '{exec_name}' 调用超时 ({self._get_tool_timeout(exec_name)}秒)。"
+            logger.warning(f"工具 '{exec_name}' 调用超时")
 
         if self.on_tool_result:
             await self.on_tool_result(self.name, exec_name, result)

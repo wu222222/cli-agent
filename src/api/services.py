@@ -51,6 +51,10 @@ def get_tool_registry() -> Optional[ToolRegistry]:
     return _tool_registry
 
 
+def get_context_manager() -> Optional[ContextManager]:
+    return _context_manager
+
+
 def get_worker_tool_names() -> List[str]:
     return list(_worker_tool_names)
 
@@ -111,7 +115,39 @@ def _get_or_init_components():
             tool.handler = judge_handler
             logger.info(f"Judge handler 已绑定到: {tool_name}")
 
+    # 绑定 context_compress handler（LLM 摘要压缩）
+    compress_tool = _tool_registry.get_tool("context_compress")
+    if compress_tool:
+        compress_tool.handler = _create_compress_handler(_llm_client, _context_manager)
+        logger.info("ContextCompress handler 已绑定")
+
     logger.info(f"所有工具注册完成: {_tool_registry.list_tools()}")
+
+
+def _create_compress_handler(llm_client, context_manager):
+    """创建上下文压缩 handler"""
+    async def compress_handler(messages_to_compress: str, **kwargs) -> str:
+        prompt = f"""请将以下对话历史压缩为一段简洁的摘要，保留关键信息：
+
+{messages_to_compress}
+
+摘要格式要求：
+1. 保留关键操作和发现（按时间顺序）
+2. 保留具体的文件路径、IP 地址、URL、flag 值等硬数据
+3. 保留遇到的错误及对应的解决方法
+4. 用中文，控制在 300 字以内
+
+直接输出摘要，不要加额外解释。"""
+        try:
+            response = await llm_client.achat([{"role": "user", "content": prompt}])
+            summary = response.strip()
+            if context_manager:
+                context_manager.inject_summary(summary)
+            return summary
+        except Exception as e:
+            logger.error(f"上下文压缩失败: {e}")
+            return f"压缩失败: {e}"
+    return compress_handler
 
 
 # --- Agent 创建（基于 AgentRegistry，数据驱动） ---
@@ -156,9 +192,13 @@ def _auto_start_containers_for_tools(tool_names: List[str]):
                 container_path = parts[1]
                 mode = parts[2] if len(parts) > 2 else 'rw'
                 volumes[host_path] = {'bind': container_path, 'mode': mode}
+        network = getattr(tool, 'network_mode', 'none')
+        priv = getattr(tool, 'privileged', False)
         success = _plugin_manager.ensure_running(
             tool.container_name, image,
             volumes=volumes or None,
+            network_mode=network,
+            privileged=priv,
         )
         if success:
             container = _plugin_manager.get_container(tool.container_name)
@@ -183,6 +223,9 @@ def _create_agent_for_type(agent_type: str, request_id: str) -> BaseAgent:
     # 确定使用哪个 streaming 包装类（StreamingXxxAgent 才有 SSE 回调能力）
     # 映射在 services.py 维护（避免 agent.py 循环导入）
     streaming_cls = STREAMING_WRAPPER_MAP.get(agent_type)
+    # 获取对应的 ContextPolicy
+    from src.agent.agent import AGENT_POLICIES
+    policy = AGENT_POLICIES.get(agent_type)
     if streaming_cls:
         agent = streaming_cls(
             llm_client=_llm_client,
@@ -190,6 +233,7 @@ def _create_agent_for_type(agent_type: str, request_id: str) -> BaseAgent:
             prompt_manager=_prompt_manager,
             tool_registry=_tool_registry,
             tool_names=tool_names,
+            context_policy=policy,
         )
     else:
         # judge 等不需要 streaming 的 Agent
@@ -257,6 +301,7 @@ async def run_agent_with_streaming(agent: BaseAgent, request_id: str):
                     await queue.put({"event": "confirm", "data": {
                         "content": prompt, "agent": agent.name,
                         "thought": thought, "command": command,
+                        "tool_name": data.response.tool_name or "",
                     }})
                 return
             if queue:
