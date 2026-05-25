@@ -112,27 +112,6 @@ plugins:
         description: "要执行的命令，如 'g++ main.cpp -o app && ./app' 或 'python3 script.py'"
     required_params: ["command"]
 
-  - name: "kali"
-    type: "exec"
-    agent_type: "worker"
-    bound_action: "execute_command"
-    requires_confirmation: true
-    description: "Kali Linux 渗透测试环境 — 内置 nmap、nikto、sqlmap、gobuster、hydra、dirb、wfuzz、searchsploit、john、enum4linux 等工具，用于安全审计和漏洞挖掘"
-    container_name: "kali_pentest"
-    image: "kali-pentest:latest"
-    entrypoint_cmd: "bash -c"
-    network_mode: "bridge"
-    privileged: true
-    timeout_seconds: 120
-    mount_dirs: ["./workspace:/workspace:rw"]
-    category: "shell"
-    icon: "target"
-    parameters:
-      command:
-        type: "string"
-        description: "要执行的 Kali 命令，如 'nmap -sV target_ip'"
-    required_params: ["command"]
-
   # ============================
   # command 插件 — 用户快捷命令
   # ============================
@@ -194,60 +173,5 @@ plugins:
         description: "简述你得出此结论的证据链（可选）"
     required_params: ["final_answer"]
 
-  # ============================
-  # compose 插件 — 多容器组
-  # ============================
-
-  - name: "ctf_lab"
-    type: "compose"
-    description: |
-      CTF 安全靶场环境 (3 个 flag)
-      提交机地址: http://submission:8080
-      提交 flag: wget -qO- 'http://submission:8080/submit?flag=YOUR_FLAG'
-    compose_file: "labs/ctf_lab/docker-compose.yml"
-    category: "lab"
-    icon: "target"
-    services:
-      # Agent 工具 — 攻击机 shell
-      - service_name: "lab"
-        type: "exec"
-        agent_type: "worker"
-        name: "ctf_shell"
-        description: "攻击机 shell — 可执行任意命令，寻找并提交 flag"
-        requires_confirmation: true
-        entrypoint_cmd: "sh -c"
-        bound_action: "execute_command"
-        category: "shell"
-        icon: "terminal"
-        parameters:
-          command:
-            type: "string"
-            description: "要执行的命令"
-        required_params: ["command"]
-
-      # 用户命令 — 提交机状态查询
-      - service_name: "submission"
-        type: "command"
-        agent_type: "none"
-        name: "ctf_status"
-        command_trigger: "/ctf_status"
-        description: "查看提交机状态 — 已找到的 flag 和提交记录"
-        default_command: "python3 -c \"import urllib.request,json; r=urllib.request.urlopen('http://localhost:8080/status'); d=json.loads(r.read()); print(json.dumps(d,indent=2,ensure_ascii=False))\""
-        requires_confirmation: false
-        entrypoint_cmd: "sh -c"
-        category: "command"
-        icon: "chart"
-        parameters:
-          command:
-            type: "string"
-            description: "要执行的命令"
-        required_params: ["command"]
-
-      # 辅助容器 — 靶机（不暴露给 Agent）
-      - service_name: "target1"
-        type: "aux"
-        description: "靶机 1 — 存放 flag1，仅 lab 容器内网可访问"
-
-      - service_name: "target2"
-        type: "aux"
-        description: "靶机 2 — 存放 flag2，仅 lab 容器内网可访问"
+# 实验插件（ctf_lab, crypto_tls, kali）已移至 config/plugins_lab.yaml
+# 详见 LABS.md

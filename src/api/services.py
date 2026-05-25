@@ -80,10 +80,13 @@ def _get_or_init_components():
     # 1. 插件管理器 + YAML 插件加载
     # 所有容器插件默认不自动启动，用户在工具设置页面手动启动
     _plugin_manager = PluginContainerManager()
-    plugins_yaml = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "config", "plugins.yaml")
-    if os.path.exists(plugins_yaml):
-        _tool_registry.load_from_yaml(plugins_yaml, docker_client=_plugin_manager.client)
-        logger.info(f"YAML 插件加载完成（容器默认不启动，请在工具设置页面启动）")
+    config_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "config")
+    for yaml_name in ("plugins.yaml", "plugins_lab.yaml"):
+        path = os.path.join(config_dir, yaml_name)
+        if os.path.exists(path):
+            _tool_registry.load_from_yaml(path, docker_client=_plugin_manager.client)
+            logger.info(f"Loaded: {yaml_name}")
+    logger.info(f"YAML 插件加载完成（容器默认不启动，请在工具设置页面启动）")
 
     # 2. 注册 CALL_JUDGE 的 handler（唯一保留的 LocalTool）
     _judge_agent = JudgeAgent(

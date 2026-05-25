@@ -226,13 +226,15 @@ class ComposePlugin:
     async def up(self) -> tuple[bool, str]:
         """docker compose up -d --build"""
         import subprocess, os
-        abs_path = os.path.abspath(self.compose_file).replace("\\", "/")
-        if not os.path.exists(abs_path):
-            return False, f"compose 文件不存在: {abs_path}"
+        compose_dir = os.path.dirname(os.path.abspath(self.compose_file))
+        compose_file = os.path.join(compose_dir, os.path.basename(self.compose_file))
+        if not os.path.exists(compose_file):
+            return False, f"compose file not found: {compose_file}"
         try:
             result = subprocess.run(
-                ["docker", "compose", "-p", self.name, "-f", abs_path, "up", "-d", "--build"],
-                capture_output=True, text=True, timeout=120,
+                ["docker", "compose", "-p", self.name, "-f", compose_file, "up", "-d", "--build"],
+                capture_output=True, text=True, timeout=180,
+                cwd=compose_dir,
             )
             if result.returncode == 0:
                 self.running = True
@@ -245,13 +247,15 @@ class ComposePlugin:
     async def down(self, volumes: bool = False) -> tuple[bool, str]:
         """docker compose down [-v]"""
         import subprocess, os
-        abs_path = os.path.abspath(self.compose_file).replace("\\", "/")
-        cmd = ["docker", "compose", "-p", self.name, "-f", abs_path, "down"]
+        compose_dir = os.path.dirname(os.path.abspath(self.compose_file))
+        compose_file = os.path.join(compose_dir, os.path.basename(self.compose_file))
+        cmd = ["docker", "compose", "-p", self.name, "-f", compose_file, "down"]
         if volumes:
             cmd.append("-v")
         try:
             result = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=60,
+                cwd=compose_dir,
             )
             if result.returncode == 0:
                 self.running = False
