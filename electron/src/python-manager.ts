@@ -118,7 +118,8 @@ export class PythonManager {
       env: {
         ...process.env,
         PYTHONUNBUFFERED: '1',
-        PYTHONIOENCODING: 'utf-8',   // 修复 Windows 中文乱码
+        PYTHONUTF8: '1',            // PEP 540: 强制 UTF-8 模式
+        PYTHONIOENCODING: 'utf-8',  // 修复 Windows 中文乱码
         PYTHONLEGACYWINDOWSSTDIO: 'utf-8',
         PORT: String(this.port),
       },

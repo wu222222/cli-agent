@@ -1,4 +1,6 @@
 @echo off
+set PYTHONUTF8=1
+set PYTHONIOENCODING=utf-8
 
 echo ========================================
 echo   Safe-CLI-Agent Desktop (Dev Mode)

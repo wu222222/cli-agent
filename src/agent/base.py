@@ -133,10 +133,36 @@ class BaseAgent(ABC):
             data = json.loads(json_str, strict=False)
             return LLMOutput.model_validate(data)
         except (json.JSONDecodeError, IndexError, ValidationError) as e:
+            # 重试：修复 LLM 输出中常见的无效转义（如 Windows 路径中的 \k, \l 等）
+            try:
+                json_str = self._extract_json(response_text)
+                if json_str:
+                    fixed = self._fix_invalid_escapes(json_str)
+                    if fixed != json_str:
+                        data = json.loads(fixed, strict=False)
+                        return LLMOutput.model_validate(data)
+            except Exception:
+                pass
             logger.warning(f"JSON parse or validation failed: {e}")
             if isinstance(e, json.JSONDecodeError) and e.pos:
                 logger.debug(f"JSON near error: {repr(json_str[max(0,e.pos-30):e.pos+30])}")
             return None
+
+    @staticmethod
+    def _fix_invalid_escapes(s: str) -> str:
+        """修复 JSON 字符串中 LLM 产生的无效转义（如 \\k, \\l 等非 JSON 标准转义）"""
+        # JSON 允许的转义: \" \\ \/ \b \f \n \r \t \uXXXX
+        # 将其他 \X 替换为 \\X（双重转义后等价于字面量 \X）
+        import re
+
+        def _replace(m: re.Match) -> str:
+            char = m.group(1)
+            if char in ('"', '\\', '/', 'b', 'f', 'n', 'r', 't', 'u'):
+                return m.group(0)  # 有效转义，保留
+            return '\\\\' + char  # 无效转义，转义反斜杠本身
+
+        # 匹配字符串内部的 \X 模式（不处理已经是 \\ 的情况）
+        return re.sub(r'\\(.)', _replace, s)
 
     @staticmethod
     def _extract_json(text: str) -> Optional[str]:
