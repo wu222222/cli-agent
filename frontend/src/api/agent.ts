@@ -25,9 +25,9 @@ export const sendCuratorTask = async (task: string): Promise<ChatApiResponse> =>
 }
 
 export const connectStream = (requestId: string, handlers: {
-  onToolStart?: (data: { agent: string; tool: string; tool_type?: string; content: string }) => void
-  onToolResult?: (data: { agent: string; tool: string; tool_type?: string; content: string }) => void
-  onConfirm?: (data: { content: string; agent: string }) => void
+  onToolStart?: (data: { agent: string; tool: string; tool_type?: string; content: string; command?: string }) => void
+  onToolResult?: (data: { agent: string; tool: string; tool_type?: string; content: string; command?: string }) => void
+  onConfirm?: (data: { content: string; agent: string; thought?: string; command?: string; tool_name?: string }) => void
   onFinal?: (data: { content: string; agent: string }) => void
   onError?: (data: { content: string }) => void
   onOpen?: () => void

@@ -180,12 +180,9 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
 import type { PluginDetail } from '@/types'
 import api from '@/api/agent'
 import { regenerateCompose } from '@/api/config'
-
-const router = useRouter()
 
 const availableTools = ref<(PluginDetail & { _starting?: boolean; _stopping?: boolean })[]>([])
 const saving = ref(false)
@@ -200,6 +197,7 @@ interface ComposeItem {
   category: string
   icon: string
   children: any[]
+  has_regenerate?: boolean
   _starting?: boolean
   _stopping?: boolean
   _resetting?: boolean
@@ -216,7 +214,7 @@ const agentTools = computed(() =>
   availableTools.value.filter(t => t.plugin_type !== 'command')
 )
 
-function getIcon(icon: string): string {
+function getIcon(icon: string | undefined): string {
   const icons: Record<string, string> = {
     terminal: '⌘',
     search: '🔍',

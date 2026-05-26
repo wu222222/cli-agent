@@ -125,7 +125,6 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onActivated } from 'vue'
-import { useRouter } from 'vue-router'
 import { sendMessage, sendCuratorTask, checkConnection } from '@/api/agent'
 import api from '@/api/agent'
 import { executeCommandPlugin } from '@/api/config'
@@ -134,7 +133,6 @@ import { useSSE } from '@/composables/useSSE'
 import MessageBubble from '@/components/MessageBubble.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
-const router = useRouter()
 const chatStore = useChatStore()
 const { connect, disconnect } = useSSE()
 
@@ -368,7 +366,6 @@ async function handleSend() {
 
 async function handleConfirm(guidance: string = '') {
   isConfirming = true
-  const command = chatStore.pendingCommand
   chatStore.clearPending()
   isConfirming = false
 
