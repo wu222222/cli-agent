@@ -7,8 +7,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-# Windows: 修复 asyncio 子进程事件循环兼容性问题
+# Windows: 修复控制台编码 + asyncio 子进程事件循环兼容性
 if sys.platform == "win32":
+    # 强制 stdout/stderr 使用 UTF-8，解决中文乱码
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from .routes import router
