@@ -1,0 +1,62 @@
+appId: "com.safecliagent.app"
+productName: "Safe-CLI-Agent"
+copyright: "Copyright © 2026"
+
+directories:
+  output: "release"
+  buildResources: "build"
+
+files:
+  - "out/**/*"              # electron-vite 编译产物（main + preload）
+  - "frontend/dist/**/*"    # Vue 3 前端打包产物
+  - "src/**/*"              # Python 源码
+  - "config/**/*"           # 插件配置
+  - "knowledge_base/**/*"   # 知识库
+  - "workspace/**/*"        # 工作目录
+
+# Python 后端 — 用 extraResources 携带 PyInstaller 打包产物
+extraResources:
+  - from: "python-dist/"
+    to: "python"
+    filter:
+      - "**/*"
+
+# ── Windows ──
+win:
+  target:
+    - target: "nsis"
+      arch: ["x64"]
+  icon: "build/icon.ico"
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: "Safe-CLI-Agent"
+
+# ── macOS ──
+mac:
+  target:
+    - target: "dmg"
+      arch: ["x64", "arm64"]
+  icon: "build/icon.icns"
+  category: "public.app-category.developer-tools"
+  entitlements: "build/entitlements.mac.plist"
+  hardenedRuntime: true
+
+# ── Linux ──
+linux:
+  target:
+    - target: "AppImage"
+      arch: ["x64"]
+    - target: "deb"
+      arch: ["x64"]
+  icon: "build/icon.png"
+  category: "Development"
+
+# 自动更新（GitHub Releases）
+publish:
+  provider: "github"
+  owner: "wu222222"
+  repo: "cli-agent"

@@ -1,0 +1,30 @@
+{
+  "name": "safe-cli-agent",
+  "version": "1.0.0",
+  "description": "Safe-CLI-Agent 桌面端 — 智能命令行助手",
+  "main": "./out/main/index.js",
+  "author": "Safe-CLI-Agent",
+  "license": "MIT",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:backend": "cd .. && python -m src.api.main",
+    "build": "electron-vite build && electron-builder",
+    "build:frontend": "cd frontend && npm run build",
+    "build:win": "npm run build:frontend && electron-vite build && electron-builder --win",
+    "build:mac": "npm run build:frontend && electron-vite build && electron-builder --mac",
+    "build:linux": "npm run build:frontend && electron-vite build && electron-builder --linux",
+    "typecheck": "tsc --noEmit -p electron/tsconfig.json",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
+    "electron-vite": "^2.4.0",
+    "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "electron-updater": "^6.0.0"
+  }
+}

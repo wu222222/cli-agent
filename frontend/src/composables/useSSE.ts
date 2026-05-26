@@ -34,6 +34,15 @@ export function useSSE() {
           command: data.command,
           toolName: data.tool_name || '',
         })
+
+        // 桌面端：当窗口隐藏时发送原生通知
+        if (window.electronAPI && document.hidden) {
+          const tool = data.tool_name || '工具'
+          window.electronAPI.showNotification({
+            title: '需要确认操作',
+            body: `${tool}: ${data.command || '(点击查看详情)'}`,
+          })
+        }
       },
 
       onFinal(data) {
@@ -47,6 +56,14 @@ export function useSSE() {
         })
         chatStore.isThinking = false
         disconnect()
+
+        // 桌面端：任务完成时，窗口隐藏则发原生通知
+        if (window.electronAPI && document.hidden) {
+          window.electronAPI.showNotification({
+            title: 'Safe-CLI-Agent',
+            body: `任务完成: ${data.content.slice(0, 100)}`,
+          })
+        }
       },
 
       onError(data) {

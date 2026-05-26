@@ -1,8 +1,15 @@
+import asyncio
 import logging
 import os
+import sys
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+
+# Windows: 修复 asyncio 子进程事件循环兼容性问题
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from .routes import router
 from src.logger import setup_logger, get_logger
@@ -28,6 +35,17 @@ app.add_middleware(
 )
 
 app.include_router(router)
+
+# ── 生产模式：Serve 前端静态文件 ──────────────────────────
+# 仅在桌面端打包后生效（frontend/dist 存在时）
+FRONTEND_DIST = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+    "frontend", "dist"
+)
+
+if os.path.exists(FRONTEND_DIST):
+    app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")
+    logger.info(f"前端静态文件服务已启用: {FRONTEND_DIST}")
 
 if __name__ == "__main__":
     import uvicorn
