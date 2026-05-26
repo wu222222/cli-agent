@@ -105,6 +105,13 @@ export class PythonManager {
     const python = this.resolvePython()
     const projectRoot = path.join(__dirname, '../..')
 
+    // Windows: 强制控制台使用 UTF-8 编码（解决中文乱码）
+    if (process.platform === 'win32') {
+      try {
+        execSync('chcp 65001', { stdio: 'ignore' })
+      } catch { /* ignore */ }
+    }
+
     // 先释放端口（kill 之前残留的 Python 进程）
     this.killPort(this.port)
     // 等 200ms 让端口完全释放
@@ -113,7 +120,7 @@ export class PythonManager {
     console.log(`[PythonManager] Starting Python backend: ${python}`)
     console.log(`[PythonManager] Working directory: ${projectRoot}`)
 
-    this.process = spawn(python, ['-m', 'src.api.main'], {
+    this.process = spawn(python, ['-X', 'utf8', '-m', 'src.api.main'], {
       cwd: projectRoot,
       env: {
         ...process.env,
