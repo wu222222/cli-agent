@@ -33,21 +33,54 @@ export function checkDocker(): boolean {
 }
 
 /**
- * 尝试获取 conda 环境中的 Python 路径
+ * 尝试获取 conda 环境的 Python 路径
+ *
+ * 策略（按优先级）：
+ *   1. CONDA_PREFIX 环境变量（如果已激活）
+ *   2. 常见安装路径 + envs/safe-cli-agent/python.exe
+ *   3. 使用 conda run 检测（通过 PATH 中的 conda）
  */
 export function resolveCondaPython(): string | null {
-  if (process.platform !== 'win32') return null
-
-  const home = process.env.USERPROFILE || process.env.HOME || ''
-  const candidates = [
-    `${home}\\miniforge3\\envs\\safe-cli-agent\\python.exe`,
-    `${home}\\anaconda3\\envs\\safe-cli-agent\\python.exe`,
-    `${home}\\miniconda3\\envs\\safe-cli-agent\\python.exe`,
-  ]
-
+  const envName = 'safe-cli-agent'
   const fs = require('node:fs')
-  for (const p of candidates) {
-    if (fs.existsSync(p)) return p
+  const { execSync } = require('node:child_process')
+
+  // 1. 检查 CONDA_PREFIX 环境变量
+  const condaPrefix = process.env.CONDA_PREFIX
+  if (condaPrefix && fs.existsSync(`${condaPrefix}\\python.exe`)) {
+    // 确认是 safe-cli-agent 环境（以防 CONDA_PREFIX 指向 base）
+    if (condaPrefix.endsWith(`\\${envName}`) || condaPrefix.includes(`envs\\${envName}`)) {
+      return `${condaPrefix}\\python.exe`
+    }
   }
+
+  // 2. 常见安装路径
+  if (process.platform === 'win32') {
+    const home = process.env.USERPROFILE || process.env.HOME || ''
+    const candidates = [
+      `${home}\\miniforge3\\envs\\${envName}\\python.exe`,
+      `${home}\\anaconda3\\envs\\${envName}\\python.exe`,
+      `${home}\\miniconda3\\envs\\${envName}\\python.exe`,
+      // 也检查 AppData 下的 miniforge
+      `${home}\\AppData\\Local\\miniforge3\\envs\\${envName}\\python.exe`,
+      // 检查 Mambaforge
+      `${home}\\mambaforge\\envs\\${envName}\\python.exe`,
+    ]
+    for (const p of candidates) {
+      if (fs.existsSync(p)) return p
+    }
+  }
+
+  // 3. 尝试用 conda run 获取 Python 路径
+  try {
+    const result = execSync(
+      `conda run -n ${envName} python -c "import sys; print(sys.executable)"`,
+      { encoding: 'utf-8', timeout: 10000, stdio: ['ignore', 'pipe', 'pipe'] }
+    ).trim()
+    if (result && fs.existsSync(result)) return result
+  } catch {
+    // conda 不可用或环境不存在
+  }
+
   return null
 }
