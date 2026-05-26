@@ -4,10 +4,21 @@ echo ========================================
 echo   Safe-CLI-Agent Desktop (Dev Mode)
 echo ========================================
 echo.
-echo Starting...
+
+echo [1/2] Building frontend...
+cd /d "%~dp0frontend"
+call npm run build
+if errorlevel 1 (
+    echo Frontend build failed! Check errors above.
+    pause
+    exit /b 1
+)
+cd /d "%~dp0"
+
+echo.
+echo [2/2] Starting Electron...
 echo   - Auto-clean port 8000
 echo   - Auto-start Python backend
-echo   - Auto-open Electron window
 echo.
 echo Press Ctrl+C to quit
 echo ========================================

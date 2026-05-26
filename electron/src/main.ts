@@ -46,12 +46,14 @@ async function createWindow(): Promise<BrowserWindow> {
   })
 
   // 加载前端
-  const isDev = process.env.NODE_ENV === 'development'
-  if (isDev) {
+  //   生产模式：Python 后端 serve 前端 dist (localhost:8000)
+  //   开发模式：同样从 8000 加载（执行 npm run build:frontend 先构建前端）
+  //   如需 Vite HMR：另开终端 npm run dev:frontend，并设置 USE_VITE_DEV=1
+  const useViteDev = process.env.USE_VITE_DEV === '1'
+  if (useViteDev) {
     mainWindow.loadURL('http://localhost:5173')
     mainWindow.webContents.openDevTools()
   } else {
-    // 生产模式：Python 后端 serve 前端 dist（统一在 localhost:8000）
     mainWindow.loadURL('http://localhost:8000')
   }
 
