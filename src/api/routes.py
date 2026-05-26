@@ -25,7 +25,7 @@ from .services import (
 
 logger = logging.getLogger("api")
 
-router = APIRouter()
+router = APIRouter(prefix="/api")
 
 
 @router.get("/health", response_model=HealthResponse)

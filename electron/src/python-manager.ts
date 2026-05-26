@@ -77,7 +77,7 @@ export class PythonManager {
       const startTime = Date.now()
 
       const check = (): void => {
-        const req = http.get(`http://localhost:${this.port}/health`, (res) => {
+        const req = http.get(`http://localhost:${this.port}/api/health`, (res) => {
           if (res.statusCode === 200) {
             this._ready = true
             resolve()
