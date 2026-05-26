@@ -224,7 +224,7 @@ function getIcon(icon: string | undefined): string {
     target: '🎯',
     default: '📦',
   }
-  return icons[icon] || icons.default
+  return icons[icon || 'default'] || icons.default
 }
 
 function toggleTool(name: string) {
