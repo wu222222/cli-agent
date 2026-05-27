@@ -1,0 +1,11 @@
+{
+  "id": "64eb2b6fc873",
+  "title": "新对话",
+  "created_at": "2026-05-27T15:41:21.937105",
+  "updated_at": "2026-05-27T15:41:21.937105",
+  "tool_names": [
+    "context_compress",
+    "search"
+  ],
+  "messages": []
+}

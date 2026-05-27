@@ -107,6 +107,7 @@ async function handleNewChat() {
   try {
     const result = await createSession()
     currentSessionId.value = result.session_id
+    chatStore.currentSessionId = result.session_id  // 同步到 chatStore
     chatStore.clearMessages()
     emit('new-chat')
     await loadSessions()
@@ -125,22 +126,20 @@ async function handleSelectSession(sessionId: string) {
     // 设置加载标志，防止 pushMessage 重复保存到 session
     setLoadingSession(true)
 
-    // 先清空消息，等 Vue 清除完成后再推入新消息
-    chatStore.clearMessages()
-    await nextTick()
+    // 直接替换整个消息数组（避免逐条 push 导致的渲染问题）
+    const restoredMessages = data.messages.map((msg: any) => ({
+      role: msg.role === 'user' ? 'user' as const : 'system' as const,
+      content: msg.content,
+      timestamp: msg.timestamp || new Date().toLocaleTimeString(),
+      thought: msg.thought || '',
+      type: msg.type || 'text' as const,
+      agent: msg.agent || '',
+      toolName: msg.toolName,
+      command: msg.command,
+    }))
 
-    for (const msg of data.messages) {
-      chatStore.pushMessage({
-        role: msg.role === 'user' ? 'user' : 'system',
-        content: msg.content,
-        timestamp: msg.timestamp || new Date().toLocaleTimeString(),
-        thought: msg.thought || '',
-        type: msg.type || 'text',
-        agent: msg.agent || '',
-        toolName: msg.toolName,
-        command: msg.command,
-      })
-    }
+    // 替换消息数组（Vue 响应式）
+    chatStore.messages = restoredMessages
 
     // 恢复完成，关闭加载标志
     setLoadingSession(false)

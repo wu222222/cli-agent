@@ -51,7 +51,7 @@ function clearPending() {
 }
 
 function clearMessages() {
-  store.messages.splice(0)
+  store.messages = []
   store.isThinking = false
 }
 
