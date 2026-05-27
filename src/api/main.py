@@ -30,6 +30,11 @@ setup_logger(
 )
 
 logger = get_logger("api")
+logger.info("=" * 50)
+logger.info("Safe-CLI-Agent backend starting...")
+logger.info(f"Working directory: {os.getcwd()}")
+logger.info(f"Python: {sys.executable}")
+logger.info("=" * 50)
 
 app = FastAPI(title="Safe-CLI-Agent API", version="1.0.0")
 

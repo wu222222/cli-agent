@@ -654,6 +654,7 @@ async def create_session():
         return {"error": "SessionManager 未初始化"}
     tool_names = get_worker_tool_names()
     session_id = sm.create_session(tool_names)
+    logger.info(f"Created new session: {session_id} with tools: {tool_names}")
     return {"session_id": session_id, "tool_names": tool_names}
 
 
@@ -723,6 +724,7 @@ async def update_session_tools(session_id: str, body: dict):
     if not sm:
         return {"error": "SessionManager 未初始化"}
     tool_names = body.get("tool_names", [])
+    logger.info(f"Updating session {session_id} tools: {tool_names}")
     success = sm.update_tool_names(session_id, tool_names)
     return {"success": success}
 
