@@ -1,8 +1,13 @@
 import { reactive } from 'vue'
 import type { Message, SessionInfo } from '@/types'
 
+// 恢复会话时的加载标志（跳过自动保存）
+let isLoadingSession = false
+
 async function pushMessage(msg: Message) {
   store.messages.push(msg)
+  // 恢复会话时不保存（消息已存在于 session 文件中）
+  if (isLoadingSession) return
   // 自动保存到当前 session
   if (store.currentSessionId) {
     try {
@@ -21,6 +26,11 @@ async function pushMessage(msg: Message) {
       console.error('自动保存消息失败:', e)
     }
   }
+}
+
+// 暴露加载标志控制方法
+export function setLoadingSession(value: boolean) {
+  isLoadingSession = value
 }
 
 function setPending(data: { content: string; requestId: string; thought?: string; command?: string; toolName?: string }) {

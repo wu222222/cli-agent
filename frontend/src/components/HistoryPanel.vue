@@ -79,7 +79,7 @@ import {
   deleteSession as apiDeleteSession,
   resumeSession,
 } from '@/api/config'
-import { useChatStore } from '@/stores/chat'
+import { useChatStore, setLoadingSession } from '@/stores/chat'
 
 const emit = defineEmits<{
   (e: 'new-chat'): void
@@ -122,6 +122,9 @@ async function handleSelectSession(sessionId: string) {
     const data = await resumeSession(sessionId)
     currentSessionId.value = sessionId
 
+    // 设置加载标志，防止 pushMessage 重复保存到 session
+    setLoadingSession(true)
+
     // 先清空消息，等 Vue 清除完成后再推入新消息
     chatStore.clearMessages()
     await nextTick()
@@ -138,6 +141,9 @@ async function handleSelectSession(sessionId: string) {
         command: msg.command,
       })
     }
+
+    // 恢复完成，关闭加载标志
+    setLoadingSession(false)
 
     emit('resume-session', {
       session_id: sessionId,
