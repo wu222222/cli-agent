@@ -46,6 +46,13 @@
     </div>
 
     <div class="chat-body">
+      <!-- 左侧历史对话面板 -->
+      <HistoryPanel
+        ref="historyPanelRef"
+        @new-chat="handleNewChat"
+        @resume-session="handleResumeSession"
+      />
+
       <div class="chat-main">
         <div class="chat-messages" ref="messagesContainer">
           <MessageBubble
@@ -127,14 +134,16 @@
 import { ref, computed, watch, nextTick, onMounted, onActivated } from 'vue'
 import { sendMessage, sendCuratorTask, checkConnection } from '@/api/agent'
 import api from '@/api/agent'
-import { executeCommandPlugin } from '@/api/config'
+import { executeCommandPlugin, saveSessionMessage } from '@/api/config'
 import { useChatStore } from '@/stores/chat'
 import { useSSE } from '@/composables/useSSE'
 import MessageBubble from '@/components/MessageBubble.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import HistoryPanel from '@/components/HistoryPanel.vue'
 
 const chatStore = useChatStore()
 const { connect, disconnect } = useSSE()
+const historyPanelRef = ref<InstanceType<typeof HistoryPanel> | null>(null)
 
 // 防止 handleConfirm 清除 pending 时触发 handleCancel
 let isConfirming = false
@@ -281,13 +290,18 @@ async function handleSend() {
   inputMessage.value = ''
   showHints.value = false
 
-  chatStore.pushMessage({
+  // 自动创建 session（首条消息时）
+  await ensureSession()
+
+  const userMsg = {
     role: 'user',
     content: msg,
     timestamp: new Date().toLocaleTimeString(),
     thought: '',
     type: 'text',
-  })
+  }
+  chatStore.pushMessage(userMsg)
+  saveMessageToSession(userMsg)
 
   // /help 命令直接返回帮助信息
   if (msg.toLowerCase() === '/help') {
@@ -361,6 +375,47 @@ async function handleSend() {
       agent: 'System',
     })
     chatStore.isThinking = false
+  }
+}
+
+// ============================================================
+// Session 管理
+// ============================================================
+
+// 新建对话
+function handleNewChat() {
+  chatStore.currentSessionId = null
+  chatStore.clearMessages()
+}
+
+// 恢复会话（含插件匹配）
+function handleResumeSession(data: { session_id: string; messages: any[]; tool_names: string[] }) {
+  chatStore.currentSessionId = data.session_id
+  // 插件配置已在 resumeSession API 中恢复
+  // 消息已在 HistoryPanel 中恢复
+}
+
+// 保存消息到当前 session
+async function saveMessageToSession(msg: any) {
+  if (!chatStore.currentSessionId) return
+  try {
+    await saveSessionMessage(chatStore.currentSessionId, msg)
+  } catch (e) {
+    console.error('保存消息失败:', e)
+  }
+}
+
+// 自动创建 session（首条消息时）
+async function ensureSession() {
+  if (!chatStore.currentSessionId) {
+    try {
+      const { createSession } = await import('@/api/config')
+      const result = await createSession()
+      chatStore.currentSessionId = result.session_id
+      historyPanelRef.value?.loadSessions()
+    } catch (e) {
+      console.error('创建会话失败:', e)
+    }
   }
 }
 

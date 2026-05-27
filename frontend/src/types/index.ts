@@ -101,3 +101,12 @@ export interface PluginActionResponse {
   success: boolean
   message: string
 }
+
+export interface SessionInfo {
+  id: string
+  title: string
+  created_at: string
+  updated_at: string
+  tool_names: string[]
+  message_count: number
+}

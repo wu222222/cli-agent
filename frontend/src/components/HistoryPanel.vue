@@ -1,0 +1,309 @@
+<template>
+  <div class="history-panel" :class="{ collapsed: isCollapsed }">
+    <!-- 折叠态：只显示图标 -->
+    <div v-if="isCollapsed" class="collapsed-icon" @click="isCollapsed = false">
+      <span title="展开历史对话">☰</span>
+    </div>
+
+    <!-- 展开态 -->
+    <div v-else class="panel-content">
+      <!-- 顶部：新建按钮 + 折叠按钮 -->
+      <div class="panel-header">
+        <button class="new-chat-btn" @click="handleNewChat">
+          <span>＋</span> 新对话
+        </button>
+        <button class="collapse-btn" @click="isCollapsed = true" title="折叠">✕</button>
+      </div>
+
+      <!-- 对话列表 -->
+      <div class="session-list">
+        <div v-if="sessions.length === 0" class="empty-tip">
+          暂无历史对话
+        </div>
+        <div
+          v-for="session in sessions"
+          :key="session.id"
+          class="session-item"
+          :class="{ active: currentSessionId === session.id }"
+          @click="handleSelectSession(session.id)"
+        >
+          <div class="session-info">
+            <div class="session-title">{{ session.title }}</div>
+            <div class="session-meta">
+              <span>{{ formatTime(session.updated_at) }}</span>
+              <span>{{ session.message_count }} 条</span>
+            </div>
+          </div>
+          <button
+            class="delete-btn"
+            @click.stop="handleDeleteSession(session.id)"
+            title="删除对话"
+          >
+            ×
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, onMounted, watch } from 'vue'
+import type { SessionInfo } from '@/types'
+import {
+  listSessions,
+  createSession,
+  deleteSession as apiDeleteSession,
+  resumeSession,
+} from '@/api/config'
+import { useChatStore } from '@/stores/chat'
+
+const emit = defineEmits<{
+  (e: 'new-chat'): void
+  (e: 'resume-session', data: { session_id: string; messages: any[]; tool_names: string[] }): void
+}>()
+
+const chatStore = useChatStore()
+const isCollapsed = ref(false)
+const sessions = ref<SessionInfo[]>([])
+const currentSessionId = ref<string | null>(null)
+
+// 加载会话列表
+async function loadSessions() {
+  try {
+    sessions.value = await listSessions()
+  } catch (e) {
+    console.error('加载会话列表失败:', e)
+  }
+}
+
+// 新建对话
+async function handleNewChat() {
+  try {
+    const result = await createSession()
+    currentSessionId.value = result.session_id
+    chatStore.clearMessages()
+    emit('new-chat')
+    await loadSessions()
+  } catch (e) {
+    console.error('创建会话失败:', e)
+  }
+}
+
+// 选择会话
+async function handleSelectSession(sessionId: string) {
+  if (currentSessionId.value === sessionId) return
+  try {
+    const data = await resumeSession(sessionId)
+    currentSessionId.value = sessionId
+    // 恢复消息到前端
+    chatStore.clearMessages()
+    for (const msg of data.messages) {
+      chatStore.pushMessage({
+        role: msg.role === 'user' ? 'user' : 'system',
+        content: msg.content,
+        timestamp: msg.timestamp || new Date().toLocaleTimeString(),
+        thought: msg.thought || '',
+        type: msg.type || 'text',
+        agent: msg.agent || '',
+        toolName: msg.toolName,
+        command: msg.command,
+      })
+    }
+    emit('resume-session', {
+      session_id: sessionId,
+      messages: data.messages,
+      tool_names: data.tool_names,
+    })
+  } catch (e) {
+    console.error('恢复会话失败:', e)
+  }
+}
+
+// 删除会话
+async function handleDeleteSession(sessionId: string) {
+  try {
+    await apiDeleteSession(sessionId)
+    if (currentSessionId.value === sessionId) {
+      currentSessionId.value = null
+      chatStore.clearMessages()
+    }
+    await loadSessions()
+  } catch (e) {
+    console.error('删除会话失败:', e)
+  }
+}
+
+// 格式化时间
+function formatTime(isoString: string): string {
+  if (!isoString) return ''
+  const date = new Date(isoString)
+  const now = new Date()
+  const diff = now.getTime() - date.getTime()
+  const minutes = Math.floor(diff / 60000)
+  if (minutes < 1) return '刚刚'
+  if (minutes < 60) return `${minutes}分钟前`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}小时前`
+  const days = Math.floor(hours / 24)
+  return `${days}天前`
+}
+
+// 暴露给父组件的方法
+defineExpose({
+  loadSessions,
+  setCurrentSessionId: (id: string | null) => { currentSessionId.value = id },
+})
+
+onMounted(() => {
+  loadSessions()
+})
+</script>
+
+<style scoped>
+.history-panel {
+  width: 240px;
+  background: #1a1b23;
+  border-right: 1px solid #2d2e3a;
+  display: flex;
+  flex-direction: column;
+  transition: width 0.2s ease;
+  overflow: hidden;
+}
+
+.history-panel.collapsed {
+  width: 40px;
+}
+
+.collapsed-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 48px;
+  cursor: pointer;
+  font-size: 18px;
+  color: #8b8d9a;
+}
+
+.collapsed-icon:hover {
+  color: #fff;
+}
+
+.panel-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px;
+  border-bottom: 1px solid #2d2e3a;
+}
+
+.new-chat-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: #2d2e3a;
+  border: none;
+  border-radius: 6px;
+  color: #e0e0e0;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.new-chat-btn:hover {
+  background: #3d3e4a;
+}
+
+.collapse-btn {
+  background: none;
+  border: none;
+  color: #8b8d9a;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.collapse-btn:hover {
+  color: #fff;
+}
+
+.session-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.empty-tip {
+  text-align: center;
+  color: #666;
+  font-size: 13px;
+  padding: 20px 0;
+}
+
+.session-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  margin-bottom: 4px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.session-item:hover {
+  background: #2d2e3a;
+}
+
+.session-item.active {
+  background: #2563eb20;
+  border: 1px solid #2563eb40;
+}
+
+.session-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.session-title {
+  font-size: 13px;
+  color: #e0e0e0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-meta {
+  font-size: 11px;
+  color: #666;
+  margin-top: 2px;
+  display: flex;
+  gap: 8px;
+}
+
+.delete-btn {
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 6px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.session-item:hover .delete-btn {
+  opacity: 1;
+}
+
+.delete-btn:hover {
+  color: #ef4444;
+}
+</style>

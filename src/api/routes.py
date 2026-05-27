@@ -628,3 +628,100 @@ async def set_agent_tools(config: AgentToolConfig):
     """设置 WorkerAgent 的工具配置"""
     set_worker_tool_names(config.tool_names)
     return {"success": True, "tool_names": config.tool_names}
+
+
+# ============================================================
+# Session API（对话历史持久化）
+# ============================================================
+
+from .services import get_session_manager
+
+
+@router.get("/agent/sessions")
+async def list_sessions():
+    """列出所有会话"""
+    sm = get_session_manager()
+    if not sm:
+        return []
+    return sm.list_sessions()
+
+
+@router.post("/agent/sessions")
+async def create_session():
+    """创建新会话"""
+    sm = get_session_manager()
+    if not sm:
+        return {"error": "SessionManager 未初始化"}
+    tool_names = get_worker_tool_names()
+    session_id = sm.create_session(tool_names)
+    return {"session_id": session_id, "tool_names": tool_names}
+
+
+@router.get("/agent/sessions/{session_id}")
+async def get_session(session_id: str):
+    """获取会话详情"""
+    sm = get_session_manager()
+    if not sm:
+        return {"error": "SessionManager 未初始化"}
+    session = sm.load_session(session_id)
+    if not session:
+        return {"error": "会话不存在"}
+    return session
+
+
+@router.delete("/agent/sessions/{session_id}")
+async def delete_session(session_id: str):
+    """删除会话"""
+    sm = get_session_manager()
+    if not sm:
+        return {"error": "SessionManager 未初始化"}
+    success = sm.delete_session(session_id)
+    return {"success": success}
+
+
+@router.post("/agent/sessions/{session_id}/resume")
+async def resume_session(session_id: str):
+    """恢复会话（加载消息 + 恢复插件配置）"""
+    sm = get_session_manager()
+    if not sm:
+        return {"error": "SessionManager 未初始化"}
+    session = sm.load_session(session_id)
+    if not session:
+        return {"error": "会话不存在"}
+
+    # 恢复 WorkerAgent 工具配置
+    tool_names = session.get("tool_names", [])
+    set_worker_tool_names(tool_names)
+
+    # 自动启动相关容器
+    _get_or_init_components()
+    from .services import _auto_start_containers_for_tools
+    _auto_start_containers_for_tools(tool_names)
+
+    return {
+        "session_id": session_id,
+        "tool_names": tool_names,
+        "messages": session.get("messages", []),
+    }
+
+
+@router.post("/agent/sessions/{session_id}/title")
+async def update_session_title(session_id: str, body: dict):
+    """更新会话标题"""
+    sm = get_session_manager()
+    if not sm:
+        return {"error": "SessionManager 未初始化"}
+    title = body.get("title", "新对话")
+    success = sm.update_title(session_id, title)
+    return {"success": success}
+
+
+@router.post("/agent/sessions/{session_id}/message")
+async def save_session_message(session_id: str, body: dict):
+    """保存消息到会话"""
+    sm = get_session_manager()
+    if not sm:
+        return {"error": "SessionManager 未初始化"}
+    message = body.get("message", {})
+    success = sm.save_message(session_id, message)
+    return {"success": success}

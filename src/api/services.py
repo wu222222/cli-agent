@@ -33,6 +33,17 @@ _worker_tool_names: List[str] = ["call_judge"]
 # 历史记录
 history_store: list = []
 
+# Session 管理器（延迟初始化）
+_session_manager = None
+
+
+def get_session_manager():
+    global _session_manager
+    if _session_manager is None:
+        from .session_manager import SessionManager
+        _session_manager = SessionManager(sessions_dir="sessions")
+    return _session_manager
+
 
 def get_pending_agent() -> Optional[BaseAgent]:
     return _pending_agent
