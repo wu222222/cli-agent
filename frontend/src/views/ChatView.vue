@@ -294,11 +294,11 @@ async function handleSend() {
   await ensureSession()
 
   const userMsg = {
-    role: 'user',
+    role: 'user' as const,
     content: msg,
     timestamp: new Date().toLocaleTimeString(),
     thought: '',
-    type: 'text',
+    type: 'text' as const,
   }
   chatStore.pushMessage(userMsg)
   saveMessageToSession(userMsg)
