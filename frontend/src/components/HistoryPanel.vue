@@ -33,6 +33,14 @@
               <span>{{ formatTime(session.updated_at) }}</span>
               <span>{{ session.message_count }} 条</span>
             </div>
+            <div v-if="session.tool_names && session.tool_names.length > 0" class="session-tools">
+              <span v-for="tool in session.tool_names.slice(0, 3)" :key="tool" class="tool-tag">
+                {{ tool }}
+              </span>
+              <span v-if="session.tool_names.length > 3" class="tool-tag more">
+                +{{ session.tool_names.length - 3 }}
+              </span>
+            </div>
           </div>
           <button
             class="delete-btn"
@@ -48,7 +56,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 import type { SessionInfo } from '@/types'
 import {
   listSessions,
@@ -96,8 +104,11 @@ async function handleSelectSession(sessionId: string) {
   try {
     const data = await resumeSession(sessionId)
     currentSessionId.value = sessionId
-    // 恢复消息到前端
+
+    // 先清空消息，等 Vue 清除完成后再推入新消息
     chatStore.clearMessages()
+    await nextTick()
+
     for (const msg of data.messages) {
       chatStore.pushMessage({
         role: msg.role === 'user' ? 'user' : 'system',
@@ -110,6 +121,7 @@ async function handleSelectSession(sessionId: string) {
         command: msg.command,
       })
     }
+
     emit('resume-session', {
       session_id: sessionId,
       messages: data.messages,
@@ -286,6 +298,26 @@ onMounted(() => {
   margin-top: 2px;
   display: flex;
   gap: 8px;
+}
+
+.session-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.tool-tag {
+  font-size: 10px;
+  padding: 1px 6px;
+  background: #2d2e3a;
+  border-radius: 3px;
+  color: #8b8d9a;
+}
+
+.tool-tag.more {
+  background: #3d3e4a;
+  color: #aaa;
 }
 
 .delete-btn {
