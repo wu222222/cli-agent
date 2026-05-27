@@ -29,8 +29,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return ipcRenderer.invoke('get-python-status')
   },
 
-  // 监听 Python 崩溃
+  // 监听 Python 崩溃（每次调用先移除旧监听，防止累积）
   onPythonCrashed: (callback: (data: PythonCrashedPayload) => void): void => {
+    ipcRenderer.removeAllListeners('python-crashed')
     ipcRenderer.on('python-crashed', (_event, data) => callback(data))
   },
 

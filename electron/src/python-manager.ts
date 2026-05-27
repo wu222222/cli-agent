@@ -1,5 +1,6 @@
 import { spawn, ChildProcess, exec, execSync } from 'node:child_process'
 import http from 'node:http'
+import type { IncomingMessage } from 'node:http'
 import path from 'node:path'
 import { app } from 'electron'
 import type { PythonStatus } from './ipc-channels'
@@ -39,7 +40,7 @@ export class PythonManager {
           try {
             execSync(`taskkill /PID ${pid} /F /T`, { stdio: 'ignore' })
             killed.add(pid)
-            console.log(`[PythonManager] 已释放端口 ${port} (PID: ${pid})`)
+            console.log(`[PythonManager] Released port ${port} (PID: ${pid})`)
           } catch { /* 忽略 kill 失败 */ }
         }
       }
@@ -75,23 +76,32 @@ export class PythonManager {
   private waitForReady(timeoutMs: number = 15000): Promise<void> {
     return new Promise((resolve, reject) => {
       const startTime = Date.now()
+      let settled = false
 
       const check = (): void => {
-        const req = http.get(`http://localhost:${this.port}/api/health`, (res) => {
+        if (settled) return
+        const req = http.get(`http://localhost:${this.port}/api/health`, (res: IncomingMessage) => {
+          res.resume() // 消费响应体，释放 socket
+          if (settled) { req.destroy(); return }
           if (res.statusCode === 200) {
+            settled = true
             this._ready = true
+            req.destroy()
             resolve()
             return
           }
           retry()
         })
-        req.on('error', () => retry())
-        req.setTimeout(1000, () => { req.destroy(); retry() })
+        req.on('error', () => { if (!settled) retry() })
+        req.setTimeout(1000, () => { req.destroy(); if (!settled) retry() })
       }
 
       const retry = (): void => {
         if (Date.now() - startTime > timeoutMs) {
-          reject(new Error(`后端启动超时 (${timeoutMs}ms)`))
+          if (!settled) {
+            settled = true
+            reject(new Error(`Backend startup timeout (${timeoutMs}ms)`))
+          }
           return
         }
         setTimeout(check, 500)
@@ -135,18 +145,21 @@ export class PythonManager {
 
     // 收集启动日志
     let startupLog = ''
-    this.process.stdout?.on('data', (data: Buffer) => {
+    const onStdout = (data: Buffer): void => {
       const text = data.toString('utf-8')
       startupLog += text
       if (startupLog.length > 5000) startupLog = startupLog.slice(-5000)
       process.stdout.write(`[python] ${text}`)
-    })
-    this.process.stderr?.on('data', (data: Buffer) => {
+    }
+    const onStderr = (data: Buffer): void => {
       const text = data.toString('utf-8')
       startupLog += text
       if (startupLog.length > 5000) startupLog = startupLog.slice(-5000)
       process.stderr.write(`[python:err] ${text}`)
-    })
+    }
+
+    this.process.stdout?.on('data', onStdout)
+    this.process.stderr?.on('data', onStderr)
 
     this.process.on('exit', (code: number | null) => {
       this._ready = false
@@ -157,6 +170,9 @@ export class PythonManager {
 
     try {
       await this.waitForReady()
+      // 启动成功后停止收集 startupLog（后续日志仍输出到 console）
+      this.process.stdout?.off('data', onStdout)
+      this.process.stderr?.off('data', onStderr)
       console.log(`[PythonManager] Python backend ready (port: ${this.port})`)
     } catch (err: any) {
       const error = new Error(
@@ -172,25 +188,30 @@ export class PythonManager {
     console.log('[PythonManager] Stopping Python backend...')
 
     return new Promise((resolve) => {
+      // 5 秒超时，超时后强制 resolve（防止退出挂起）
+      const forceTimer = setTimeout(() => {
+        console.log('[PythonManager] Stop timeout, forcing exit')
+        resolve()
+      }, 5000)
+
+      this.process!.once('exit', () => {
+        clearTimeout(forceTimer)
+        console.log('[PythonManager] Python process exited')
+        resolve()
+      })
+
       if (process.platform === 'win32') {
         exec(`taskkill /pid ${this.process!.pid} /T /F`, () => {
-          console.log('[PythonManager] Python process terminated')
-          resolve()
+          // exit 事件会处理 resolve
         })
       } else {
         this.process!.kill('SIGTERM')
-        const forceKillTimer = setTimeout(() => {
+        setTimeout(() => {
           if (this.process) {
             console.log('[PythonManager] Force killing Python process')
             this.process.kill('SIGKILL')
           }
-        }, 5000)
-
-        this.process!.on('exit', () => {
-          clearTimeout(forceKillTimer)
-          console.log('[PythonManager] Python process exited')
-          resolve()
-        })
+        }, 3000)
       }
     })
   }

@@ -20,7 +20,7 @@ declare module 'electron' {
 }
 
 let mainWindow: BrowserWindow | null = null
-let pythonManager: PythonManager
+let pythonManager: PythonManager | null = null
 
 // ── 创建主窗口 ──────────────────────────────────────────
 
@@ -73,7 +73,7 @@ async function createWindow(): Promise<BrowserWindow> {
 function registerIpcHandlers(): void {
   // Python 状态查询（invoke/handle 双向通信）
   ipcMain.handle('get-python-status', () => {
-    return pythonManager.getStatus()
+    return pythonManager?.getStatus() ?? { running: false, pid: null, port: 8000 }
   })
 
   // 最小化到托盘
@@ -129,7 +129,7 @@ app.whenReady().then(async () => {
   await createWindow()
 
   // 系统托盘
-  createTray(mainWindow!, pythonManager)
+  createTray(mainWindow!, pythonManager!)
 
   // 原生通知
   setupNotifications(mainWindow!)

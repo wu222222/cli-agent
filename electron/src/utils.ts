@@ -1,4 +1,6 @@
 import { createServer } from 'node:net'
+import { execSync } from 'node:child_process'
+import fs from 'node:fs'
 
 /**
  * 查找可用端口（从 preferred 开始尝试，被占用则用系统随机端口）
@@ -24,7 +26,6 @@ export function findFreePort(preferred: number = 8000): Promise<number> {
  */
 export function checkDocker(): boolean {
   try {
-    const { execSync } = require('node:child_process')
     execSync('docker info', { stdio: 'ignore', timeout: 5000 })
     return true
   } catch {
@@ -42,13 +43,10 @@ export function checkDocker(): boolean {
  */
 export function resolveCondaPython(): string | null {
   const envName = 'safe-cli-agent'
-  const fs = require('node:fs')
-  const { execSync } = require('node:child_process')
 
   // 1. 检查 CONDA_PREFIX 环境变量
   const condaPrefix = process.env.CONDA_PREFIX
   if (condaPrefix && fs.existsSync(`${condaPrefix}\\python.exe`)) {
-    // 确认是 safe-cli-agent 环境（以防 CONDA_PREFIX 指向 base）
     if (condaPrefix.endsWith(`\\${envName}`) || condaPrefix.includes(`envs\\${envName}`)) {
       return `${condaPrefix}\\python.exe`
     }
@@ -61,9 +59,7 @@ export function resolveCondaPython(): string | null {
       `${home}\\miniforge3\\envs\\${envName}\\python.exe`,
       `${home}\\anaconda3\\envs\\${envName}\\python.exe`,
       `${home}\\miniconda3\\envs\\${envName}\\python.exe`,
-      // 也检查 AppData 下的 miniforge
       `${home}\\AppData\\Local\\miniforge3\\envs\\${envName}\\python.exe`,
-      // 检查 Mambaforge
       `${home}\\mambaforge\\envs\\${envName}\\python.exe`,
     ]
     for (const p of candidates) {
