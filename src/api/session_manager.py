@@ -99,18 +99,22 @@ class SessionManager:
     def update_tool_names(self, session_id: str, tool_names: List[str]) -> bool:
         """更新会话的工具配置"""
         filepath = self._session_path(session_id)
+        logger.info(f"[SessionManager] update_tool_names: session_id={session_id}, filepath={filepath}, exists={os.path.exists(filepath)}")
         if not os.path.exists(filepath):
+            logger.warning(f"[SessionManager] Session file not found: {filepath}")
             return False
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 data = json.load(f)
+            logger.info(f"[SessionManager] Before: tool_names={data.get('tool_names')}")
             data["tool_names"] = tool_names
             data["updated_at"] = datetime.now().isoformat()
             with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
+            logger.info(f"[SessionManager] After: tool_names={data.get('tool_names')}")
             return True
         except Exception as e:
-            logger.error(f"更新工具配置失败: {session_id} - {e}")
+            logger.error(f"[SessionManager] update_tool_names failed: {session_id} - {e}")
             return False
 
     def load_session(self, session_id: str) -> Optional[dict]:

@@ -626,7 +626,9 @@ async def get_agent_tools():
 @router.post("/agent/tools")
 async def set_agent_tools(config: AgentToolConfig):
     """设置 WorkerAgent 的工具配置"""
+    logger.info(f"[set_agent_tools] Received tool_names: {config.tool_names}")
     set_worker_tool_names(config.tool_names)
+    logger.info(f"[set_agent_tools] Saved tool_names: {get_worker_tool_names()}")
     return {"success": True, "tool_names": config.tool_names}
 
 
@@ -685,13 +687,16 @@ async def resume_session(session_id: str):
     """恢复会话（加载消息 + 恢复插件配置）"""
     sm = get_session_manager()
     if not sm:
+        logger.error("[resume_session] SessionManager is None!")
         return {"error": "SessionManager 未初始化"}
     session = sm.load_session(session_id)
     if not session:
+        logger.error(f"[resume_session] Session not found: {session_id}")
         return {"error": "会话不存在"}
 
     # 恢复 WorkerAgent 工具配置
     tool_names = session.get("tool_names", [])
+    logger.info(f"[resume_session] session_id={session_id}, tool_names={tool_names}, messages={len(session.get('messages', []))}")
     set_worker_tool_names(tool_names)
 
     # 自动启动相关容器
@@ -722,10 +727,12 @@ async def update_session_tools(session_id: str, body: dict):
     """更新会话的工具配置"""
     sm = get_session_manager()
     if not sm:
+        logger.error("[update_session_tools] SessionManager is None!")
         return {"error": "SessionManager 未初始化"}
     tool_names = body.get("tool_names", [])
-    logger.info(f"Updating session {session_id} tools: {tool_names}")
+    logger.info(f"[update_session_tools] session_id={session_id}, tool_names={tool_names}")
     success = sm.update_tool_names(session_id, tool_names)
+    logger.info(f"[update_session_tools] result: {success}")
     return {"success": success}
 
 

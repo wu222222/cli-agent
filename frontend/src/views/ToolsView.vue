@@ -376,16 +376,20 @@ async function saveConfig() {
   saving.value = true
   try {
     // 1. 保存工具配置
+    console.log('[ToolsView] saveConfig: tool_names=', selectedTools.value)
     await api.post('/agent/tools', { tool_names: selectedTools.value })
 
     // 2. 同步到当前 session（如果有的话）
     const chatStore = useChatStore()
+    console.log('[ToolsView] saveConfig: currentSessionId=', chatStore.currentSessionId)
     if (chatStore.currentSessionId) {
       try {
         await updateSessionToolNames(chatStore.currentSessionId, selectedTools.value)
       } catch (e) {
-        console.warn('同步工具配置到 session 失败:', e)
+        console.warn('[ToolsView] 同步工具配置到 session 失败:', e)
       }
+    } else {
+      console.log('[ToolsView] saveConfig: No currentSessionId, skipping session sync')
     }
 
     // 3. 自动启动已勾选的 exec 类型工具的容器
