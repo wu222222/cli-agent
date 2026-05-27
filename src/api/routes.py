@@ -716,6 +716,17 @@ async def update_session_title(session_id: str, body: dict):
     return {"success": success}
 
 
+@router.post("/agent/sessions/{session_id}/tools")
+async def update_session_tools(session_id: str, body: dict):
+    """更新会话的工具配置"""
+    sm = get_session_manager()
+    if not sm:
+        return {"error": "SessionManager 未初始化"}
+    tool_names = body.get("tool_names", [])
+    success = sm.update_tool_names(session_id, tool_names)
+    return {"success": success}
+
+
 @router.post("/agent/sessions/{session_id}/message")
 async def save_session_message(session_id: str, body: dict):
     """保存消息到会话"""

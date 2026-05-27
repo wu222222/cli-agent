@@ -1,8 +1,8 @@
 <template>
   <div class="history-panel" :class="{ collapsed: isCollapsed }">
-    <!-- 折叠态：只显示图标 -->
+    <!-- 折叠态：只显示箭头 -->
     <div v-if="isCollapsed" class="collapsed-icon" @click="isCollapsed = false">
-      <span title="展开历史对话">☰</span>
+      <span title="展开历史对话">▶</span>
     </div>
 
     <!-- 展开态 -->
@@ -12,7 +12,7 @@
         <button class="new-chat-btn" @click="handleNewChat">
           <span>＋</span> 新对话
         </button>
-        <button class="collapse-btn" @click="isCollapsed = true" title="折叠">✕</button>
+        <button class="collapse-btn" @click="isCollapsed = true" title="折叠">◀</button>
       </div>
 
       <!-- 对话列表 -->
@@ -44,11 +44,26 @@
           </div>
           <button
             class="delete-btn"
-            @click.stop="handleDeleteSession(session.id)"
+            @click.stop="confirmDelete(session.id, session.title)"
             title="删除对话"
           >
             ×
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 删除确认对话框 -->
+    <div v-if="showDeleteConfirm" class="delete-confirm-overlay" @click="showDeleteConfirm = false">
+      <div class="delete-confirm-dialog" @click.stop>
+        <div class="delete-confirm-title">确认删除</div>
+        <div class="delete-confirm-body">
+          确定要删除对话「{{ deleteTarget.title }}」吗？
+          <br><span class="delete-confirm-hint">此操作不可撤销</span>
+        </div>
+        <div class="delete-confirm-actions">
+          <button class="delete-confirm-cancel" @click="showDeleteConfirm = false">取消</button>
+          <button class="delete-confirm-ok" @click="handleDeleteSession">删除</button>
         </div>
       </div>
     </div>
@@ -75,6 +90,8 @@ const chatStore = useChatStore()
 const isCollapsed = ref(false)
 const sessions = ref<SessionInfo[]>([])
 const currentSessionId = ref<string | null>(null)
+const showDeleteConfirm = ref(false)
+const deleteTarget = ref<{ id: string; title: string }>({ id: '', title: '' })
 
 // 加载会话列表
 async function loadSessions() {
@@ -132,8 +149,16 @@ async function handleSelectSession(sessionId: string) {
   }
 }
 
+// 显示删除确认
+function confirmDelete(sessionId: string, title: string) {
+  deleteTarget.value = { id: sessionId, title }
+  showDeleteConfirm.value = true
+}
+
 // 删除会话
-async function handleDeleteSession(sessionId: string) {
+async function handleDeleteSession() {
+  const sessionId = deleteTarget.value.id
+  showDeleteConfirm.value = false
   try {
     await apiDeleteSession(sessionId)
     if (currentSessionId.value === sessionId) {
@@ -337,5 +362,79 @@ onMounted(() => {
 
 .delete-btn:hover {
   color: #ef4444;
+}
+
+/* 删除确认对话框 */
+.delete-confirm-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.delete-confirm-dialog {
+  background: #1a1b23;
+  border: 1px solid #2d2e3a;
+  border-radius: 8px;
+  padding: 20px;
+  min-width: 300px;
+  max-width: 400px;
+}
+
+.delete-confirm-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #e0e0e0;
+  margin-bottom: 12px;
+}
+
+.delete-confirm-body {
+  font-size: 14px;
+  color: #aaa;
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+
+.delete-confirm-hint {
+  font-size: 12px;
+  color: #666;
+}
+
+.delete-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.delete-confirm-cancel {
+  padding: 6px 16px;
+  background: #2d2e3a;
+  border: none;
+  border-radius: 4px;
+  color: #aaa;
+  cursor: pointer;
+}
+
+.delete-confirm-cancel:hover {
+  background: #3d3e4a;
+}
+
+.delete-confirm-ok {
+  padding: 6px 16px;
+  background: #ef4444;
+  border: none;
+  border-radius: 4px;
+  color: #fff;
+  cursor: pointer;
+}
+
+.delete-confirm-ok:hover {
+  background: #dc2626;
 }
 </style>

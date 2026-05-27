@@ -182,7 +182,8 @@
 import { ref, computed, onMounted } from 'vue'
 import type { PluginDetail } from '@/types'
 import api from '@/api/agent'
-import { regenerateCompose } from '@/api/config'
+import { regenerateCompose, updateSessionToolNames } from '@/api/config'
+import { useChatStore } from '@/stores/chat'
 
 const availableTools = ref<(PluginDetail & { _starting?: boolean; _stopping?: boolean })[]>([])
 const saving = ref(false)
@@ -377,7 +378,17 @@ async function saveConfig() {
     // 1. 保存工具配置
     await api.post('/agent/tools', { tool_names: selectedTools.value })
 
-    // 2. 自动启动已勾选的 exec 类型工具的容器
+    // 2. 同步到当前 session（如果有的话）
+    const chatStore = useChatStore()
+    if (chatStore.currentSessionId) {
+      try {
+        await updateSessionToolNames(chatStore.currentSessionId, selectedTools.value)
+      } catch (e) {
+        console.warn('同步工具配置到 session 失败:', e)
+      }
+    }
+
+    // 3. 自动启动已勾选的 exec 类型工具的容器
     const execToolsToStart = availableTools.value.filter(
       t => selectedTools.value.includes(t.name) && t.plugin_type === 'exec' && t.status !== 'running'
     )

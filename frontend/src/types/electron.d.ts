@@ -31,6 +31,11 @@ export interface ElectronAPI {
   quitApp: () => void
   platform: string
   openExternal: (url: string) => void
+  // 窗口控制（自定义标题栏）
+  windowMinimize: () => void
+  windowMaximize: () => void
+  windowClose: () => void
+  windowIsMaximized: () => Promise<boolean>
 }
 
 // 扩展全局 Window 接口

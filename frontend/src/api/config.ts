@@ -78,3 +78,8 @@ export const saveSessionMessage = async (sessionId: string, message: any): Promi
   const response = await api.post(`/agent/sessions/${sessionId}/message`, { message })
   return response.data
 }
+
+export const updateSessionToolNames = async (sessionId: string, toolNames: string[]): Promise<{ success: boolean }> => {
+  const response = await api.post(`/agent/sessions/${sessionId}/tools`, { tool_names: toolNames })
+  return response.data
+}

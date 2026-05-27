@@ -29,10 +29,16 @@ let pythonManager: PythonManager | null = null
 Menu.setApplicationMenu(null)
 
 async function createWindow(): Promise<BrowserWindow> {
-  // Windows: 用 ico 文件作为窗口图标（PNG 在 Windows 标题栏不显示）
-  const iconPath = process.platform === 'win32'
-    ? path.join(__dirname, '../../build/icon.ico')
-    : path.join(__dirname, '../../build/icon.png')
+  // 图标路径：开发模式从项目根目录找，打包后从 resources 找
+  const getIconPath = (): string => {
+    const ext = process.platform === 'win32' ? '.ico' : '.png'
+    if (app.isPackaged) {
+      return path.join(process.resourcesPath, `icon${ext}`)
+    }
+    // electron-vite dev: __dirname = out/main/, 需要往上两级到项目根
+    return path.join(__dirname, '../../build/icon' + ext)
+  }
+  const iconPath = getIconPath()
 
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -41,6 +47,7 @@ async function createWindow(): Promise<BrowserWindow> {
     minHeight: 600,
     title: 'Safe-CLI-Agent',
     icon: iconPath,
+    frame: false,  // 无边框窗口，使用自定义标题栏
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'), // electron-vite 编译产物
       contextIsolation: true,
@@ -100,6 +107,20 @@ function registerIpcHandlers(): void {
   ipcMain.on('open-external', (_event, { url }: { url: string }) => {
     shell.openExternal(url)
   })
+
+  // 窗口控制（自定义标题栏需要）
+  ipcMain.on('window-minimize', () => mainWindow?.minimize())
+  ipcMain.on('window-maximize', () => {
+    if (mainWindow?.isMaximized()) {
+      mainWindow.unmaximize()
+    } else {
+      mainWindow?.maximize()
+    }
+  })
+  ipcMain.on('window-close', () => mainWindow?.close())
+
+  // 获取窗口状态
+  ipcMain.handle('window-is-maximized', () => mainWindow?.isMaximized() ?? false)
 }
 
 // ── App 生命周期 ────────────────────────────────────────

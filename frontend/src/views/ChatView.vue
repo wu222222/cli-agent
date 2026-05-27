@@ -1,5 +1,8 @@
 <template>
   <div class="chat-container">
+    <!-- 自定义标题栏（Electron 无边框窗口） -->
+    <TitleBar />
+
     <header class="chat-header">
       <h1>Safe-CLI-Agent</h1>
       <div class="header-actions">
@@ -140,6 +143,7 @@ import { useSSE } from '@/composables/useSSE'
 import MessageBubble from '@/components/MessageBubble.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import HistoryPanel from '@/components/HistoryPanel.vue'
+import TitleBar from '@/components/TitleBar.vue'
 
 const chatStore = useChatStore()
 const { connect, disconnect } = useSSE()

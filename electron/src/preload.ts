@@ -16,6 +16,11 @@ export interface ElectronAPI {
   quitApp: () => void
   platform: string
   openExternal: (url: string) => void
+  // 窗口控制（自定义标题栏）
+  windowMinimize: () => void
+  windowMaximize: () => void
+  windowClose: () => void
+  windowIsMaximized: () => Promise<boolean>
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -51,5 +56,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 用默认浏览器打开链接
   openExternal: (url: string): void => {
     ipcRenderer.send('open-external', { url })
+  },
+
+  // 窗口控制（自定义标题栏）
+  windowMinimize: (): void => {
+    ipcRenderer.send('window-minimize')
+  },
+  windowMaximize: (): void => {
+    ipcRenderer.send('window-maximize')
+  },
+  windowClose: (): void => {
+    ipcRenderer.send('window-close')
+  },
+  windowIsMaximized: (): Promise<boolean> => {
+    return ipcRenderer.invoke('window-is-maximized')
   },
 } satisfies ElectronAPI)
