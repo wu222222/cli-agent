@@ -63,7 +63,7 @@
         <!-- 配置表单 -->
         <div class="setup-form">
           <div class="form-group">
-            <label>API Key <span class="required">*</span></label>
+            <label>API Key <span v-if="status.config_source !== 'env'" class="required">*</span></label>
             <input
               v-model="form.api_key"
               type="password"
@@ -98,7 +98,7 @@
             <span class="form-hint">如 gpt-4o、claude-sonnet-4-6、deepseek-chat 等</span>
           </div>
 
-          <button class="setup-btn" @click="saveConfig" :disabled="saving">
+          <button class="setup-btn" @click="saveConfig" :disabled="saving || (!form.api_key && status.config_source !== 'env')">
             {{ saving ? '保存中...' : '保存配置' }}
           </button>
 

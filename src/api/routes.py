@@ -91,8 +91,11 @@ async def setup_save(body: dict):
     base_url = body.get("base_url", "").strip()
     model = body.get("model", "").strip()
 
+    # API Key: 如果用户留空但系统环境变量有值，则保留环境变量
     if not api_key:
-        return {"success": False, "message": "API Key 不能为空"}
+        api_key = os.getenv("DASHSCOPE_API_KEY", "")
+    if not api_key:
+        return {"success": False, "message": "API Key 不能为空（未检测到系统环境变量）"}
     if not model:
         return {"success": False, "message": "模型名称不能为空"}
 
