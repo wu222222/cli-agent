@@ -122,6 +122,45 @@ async def setup_save(body: dict):
     return {"success": True, "message": "配置已保存，请重启应用使配置生效"}
 
 
+@router.get("/plugins/config")
+async def get_plugins_config():
+    """读取 plugins.yaml 内容"""
+    config_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "config")
+    plugins_path = os.path.join(config_dir, "plugins.yaml")
+    if not os.path.exists(plugins_path):
+        return {"content": "", "exists": False}
+    with open(plugins_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    return {"content": content, "exists": True}
+
+
+@router.post("/plugins/config")
+async def save_plugins_config(body: dict):
+    """保存 plugins.yaml 内容"""
+    content = body.get("content", "")
+    if not content.strip():
+        return {"success": False, "message": "配置内容不能为空"}
+
+    # YAML 语法验证
+    try:
+        import yaml
+        parsed = yaml.safe_load(content)
+        if not isinstance(parsed, dict) or "plugins" not in parsed:
+            return {"success": False, "message": "YAML 格式错误：缺少 plugins 根键"}
+    except yaml.YAMLError as e:
+        return {"success": False, "message": f"YAML 语法错误: {e}"}
+
+    config_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "config")
+    os.makedirs(config_dir, exist_ok=True)
+    plugins_path = os.path.join(config_dir, "plugins.yaml")
+
+    with open(plugins_path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+    logger.info(f"plugins.yaml 已保存 ({len(content)} bytes)")
+    return {"success": True, "message": "插件配置已保存，重启应用后生效"}
+
+
 @router.get("/agent/chat/stream")
 async def stream_events(request_id: str = Query(...)):
     queue = get_queue(request_id)
