@@ -19,11 +19,22 @@
           v-for="session in sessions"
           :key="session.id"
           class="session-item"
-          :class="{ active: currentSessionId === session.id }"
-          @click="handleSelectSession(session.id)"
+          :class="{ active: currentSessionId === session.id, disabled: chatStore.isThinking }"
+          @click="!chatStore.isThinking && handleSelectSession(session.id)"
         >
           <div class="session-info">
-            <div class="session-title">{{ session.title }}</div>
+            <!-- 标题：双击重命名 -->
+            <input
+              v-if="renamingId === session.id"
+              class="rename-input"
+              v-model="renamingTitle"
+              @blur="finishRename(session.id)"
+              @keydown.enter="finishRename(session.id)"
+              @keydown.escape="renamingId = null"
+              @click.stop
+              autofocus
+            />
+            <div v-else class="session-title" @dblclick.stop="startRename(session)">{{ session.title }}</div>
             <div class="session-meta">
               <span>{{ formatTime(session.updated_at) }}</span>
               <span>{{ session.message_count }} 条</span>
@@ -83,6 +94,7 @@ import {
   createSession,
   deleteSession as apiDeleteSession,
   resumeSession,
+  updateSessionTitle,
 } from '@/api/config'
 import { useChatStore, setLoadingSession } from '@/stores/chat'
 
@@ -97,6 +109,8 @@ const sessions = ref<SessionInfo[]>([])
 const currentSessionId = ref<string | null>(null)
 const showDeleteConfirm = ref(false)
 const deleteTarget = ref<{ id: string; title: string }>({ id: '', title: '' })
+const renamingId = ref<string | null>(null)
+const renamingTitle = ref('')
 
 // 加载会话列表
 async function loadSessions() {
@@ -196,6 +210,24 @@ function formatTime(isoString: string): string {
   return `${days}天前`
 }
 
+// 重命名会话
+function startRename(session: SessionInfo) {
+  renamingId.value = session.id
+  renamingTitle.value = session.title
+}
+
+async function finishRename(sessionId: string) {
+  const newTitle = renamingTitle.value.trim()
+  renamingId.value = null
+  if (!newTitle) return
+  try {
+    await updateSessionTitle(sessionId, newTitle)
+    await loadSessions()
+  } catch (e) {
+    console.error('重命名失败:', e)
+  }
+}
+
 // 暴露给父组件的方法
 defineExpose({
   loadSessions,
@@ -212,6 +244,11 @@ onMounted(() => {
 
 // 工具配置变更时刷新会话列表（更新工具标签）
 watch(() => chatStore.toolsUpdatedAt, () => {
+  loadSessions()
+})
+
+// 消息数量变化时刷新会话列表（动态更新条数）
+watch(() => chatStore.messages.length, () => {
   loadSessions()
 })
 </script>
@@ -302,6 +339,26 @@ watch(() => chatStore.toolsUpdatedAt, () => {
 .session-item.active {
   background: #2563eb20;
   border: 1px solid #2563eb40;
+}
+
+.session-item.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.session-item.disabled:hover {
+  background: transparent;
+}
+
+.rename-input {
+  width: 100%;
+  background: #2d2e3a;
+  border: 1px solid #409eff;
+  border-radius: 4px;
+  color: #e0e0e0;
+  font-size: 13px;
+  padding: 2px 6px;
+  outline: none;
 }
 
 .session-info {

@@ -2,8 +2,10 @@
   <div class="chat-container">
     <!-- 统一标题栏 -->
     <TitleBar>
-      <button class="header-btn" @click="$router.push('/tools')">工具设置</button>
-      <div class="status-indicator" :class="{ connected: chatStore.isConnected }"></div>
+      <template #right>
+        <div class="status-indicator" :class="{ connected: chatStore.isConnected }"></div>
+        <button class="header-btn" @click="$router.push('/tools')" :disabled="chatStore.isThinking">工具设置</button>
+      </template>
     </TitleBar>
 
     <div class="chat-body">
@@ -55,7 +57,7 @@
           <div class="input-wrapper">
             <textarea
               v-model="inputMessage"
-              placeholder="输入命令或问题... (输入 / 查看可用命令)"
+              :placeholder="chatStore.currentSessionId ? '输入命令或问题... (输入 / 查看可用命令)' : '请先新建或选择一个对话'"
               @keydown.enter.exact.prevent="handleSend"
               @keydown="handleHintKeydown"
               :disabled="chatStore.isThinking"
@@ -66,7 +68,7 @@
               v-if="!chatStore.isThinking"
               class="send-button"
               @click="handleSend"
-              :disabled="!inputMessage.trim()"
+              :disabled="!inputMessage.trim() || !chatStore.currentSessionId"
             >
               发送
             </button>
@@ -484,9 +486,14 @@ onActivated(() => {
   transition: all 0.15s;
 }
 
-.header-btn:hover {
+.header-btn:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.14);
   color: #fff;
+}
+
+.header-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .status-indicator {

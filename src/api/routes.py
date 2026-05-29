@@ -676,17 +676,22 @@ async def get_session(session_id: str):
 
 @router.delete("/agent/sessions/{session_id}")
 async def delete_session(session_id: str):
-    """删除会话"""
+    """删除会话（同时清理内存中的上下文）"""
     sm = get_session_manager()
     if not sm:
         return {"error": "SessionManager 未初始化"}
+    # 清理内存中的上下文（如果当前上下文属于该会话）
+    _get_or_init_components()
+    cm = get_context_manager()
+    if cm:
+        cm.clear()
     success = sm.delete_session(session_id)
     return {"success": success}
 
 
 @router.post("/agent/sessions/{session_id}/resume")
 async def resume_session(session_id: str):
-    """恢复会话（加载消息 + 同步当前全局工具配置到 session）"""
+    """恢复会话（session 工具配置 → 恢复到全局，加载消息 + 上下文）"""
     sm = get_session_manager()
     if not sm:
         logger.error("[resume_session] SessionManager is None!")
@@ -697,22 +702,17 @@ async def resume_session(session_id: str):
         return {"error": "会话不存在"}
 
     session_tool_names = session.get("tool_names", [])
-    current_tool_names = get_worker_tool_names()
 
-    logger.info(f"[resume_session] session_id={session_id}, session_tools={session_tool_names}, global_tools={current_tool_names}, messages={len(session.get('messages', []))}")
+    logger.info(f"[resume_session] session_id={session_id}, session_tools={session_tool_names}, messages={len(session.get('messages', []))}")
 
-    # 用当前全局工具配置更新 session（用户最新选择优先）
-    if current_tool_names and set(current_tool_names) != set(session_tool_names):
-        logger.info(f"[resume_session] 同步全局工具到 session: {current_tool_names}")
-        sm.update_tool_names(session_id, current_tool_names)
-        tool_names = current_tool_names
-    else:
-        tool_names = current_tool_names or session_tool_names
+    # session 的工具配置是 source of truth → 恢复到全局
+    if session_tool_names:
+        set_worker_tool_names(session_tool_names)
 
     # 自动启动相关容器
     _get_or_init_components()
     from .services import _auto_start_containers_for_tools
-    _auto_start_containers_for_tools(tool_names)
+    _auto_start_containers_for_tools(session_tool_names)
 
     # 恢复上下文状态
     context_data = sm.load_context(session_id)
@@ -725,7 +725,7 @@ async def resume_session(session_id: str):
 
     return {
         "session_id": session_id,
-        "tool_names": tool_names,
+        "tool_names": session_tool_names,
         "messages": session.get("messages", []),
     }
 

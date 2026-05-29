@@ -11,6 +11,11 @@
       <slot></slot>
     </div>
 
+    <!-- 右侧：自定义操作 + 窗口控制按钮 -->
+    <div class="title-bar-right-area">
+      <slot name="right"></slot>
+    </div>
+
     <!-- 右侧：窗口控制按钮 -->
     <div class="title-bar-right">
       <button class="title-btn minimize" @click="handleMinimize" title="最小化">
@@ -92,6 +97,14 @@ function handleClose() {
   align-items: center;
   justify-content: center;
   gap: 8px;
+  -webkit-app-region: no-drag;
+}
+
+.title-bar-right-area {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 8px;
   -webkit-app-region: no-drag;
 }
 
