@@ -4,7 +4,6 @@
     <TitleBar>
       <template #right>
         <div class="status-indicator" :class="{ connected: chatStore.isConnected }"></div>
-        <button class="header-btn" @click="$router.push('/tools')" :disabled="chatStore.isThinking">工具设置</button>
       </template>
     </TitleBar>
 
@@ -83,8 +82,8 @@
         </div>
       </div>
 
-      <!-- 右侧上下文面板 -->
-      <ContextPanel ref="contextPanelRef" />
+      <!-- 右侧栏 -->
+      <RightSidebar ref="rightSidebarRef" />
     </div>
   </div>
 </template>
@@ -99,13 +98,13 @@ import { useSSE } from '@/composables/useSSE'
 import MessageBubble from '@/components/MessageBubble.vue'
 import InlineConfirm from '@/components/InlineConfirm.vue'
 import HistoryPanel from '@/components/HistoryPanel.vue'
-import ContextPanel from '@/components/ContextPanel.vue'
+import RightSidebar from '@/components/RightSidebar.vue'
 import TitleBar from '@/components/TitleBar.vue'
 
 const chatStore = useChatStore()
 const { connect, disconnect } = useSSE()
 const historyPanelRef = ref<InstanceType<typeof HistoryPanel> | null>(null)
-const contextPanelRef = ref<InstanceType<typeof ContextPanel> | null>(null)
+const rightSidebarRef = ref<InstanceType<typeof RightSidebar> | null>(null)
 
 // 防止 handleConfirm 清除 pending 时触发 handleCancel
 let isConfirming = false
@@ -472,28 +471,6 @@ onActivated(() => {
   background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
   color: rgba(255, 255, 255, 0.9);
   font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-}
-
-/* 标题栏内按钮 */
-.header-btn {
-  padding: 4px 14px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.header-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.14);
-  color: #fff;
-}
-
-.header-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
 }
 
 .status-indicator {
