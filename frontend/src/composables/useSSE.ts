@@ -9,11 +9,13 @@ export function useSSE() {
     const chatStore = useChatStore()
 
     eventSource.value = connectStream(requestId, {
-      onToolStart(_data) {
-        // 简洁模式：隐藏 tool_start 事件，不显示"正在执行"气泡
+      onToolStart(data) {
+        // 显示当前正在执行的工具名
+        chatStore.currentTool = data.tool || ''
       },
 
       onToolResult(data) {
+        chatStore.currentTool = ''
         chatStore.pushMessage({
           role: 'system',
           content: data.content,
@@ -23,6 +25,17 @@ export function useSSE() {
           agent: data.agent || 'WorkerAgent',
           toolName: data.tool,
           command: data.command || '',
+        })
+      },
+
+      onThought(data) {
+        chatStore.pushMessage({
+          role: 'system',
+          content: data.content,
+          timestamp: new Date().toLocaleTimeString(),
+          thought: '',
+          type: 'thought',
+          agent: data.agent || 'Agent',
         })
       },
 
@@ -46,6 +59,7 @@ export function useSSE() {
       },
 
       onFinal(data) {
+        chatStore.currentTool = ''
         chatStore.pushMessage({
           role: 'system',
           content: data.content,
@@ -67,6 +81,7 @@ export function useSSE() {
       },
 
       onError(data) {
+        chatStore.currentTool = ''
         chatStore.pushMessage({
           role: 'system',
           content: `错误: ${data.content}`,
@@ -83,21 +98,6 @@ export function useSSE() {
         chatStore.isConnected = true
       },
     })
-
-    // 额外监听 thought 事件（connectStream 不处理的自定义事件）
-    if (eventSource.value) {
-      eventSource.value.addEventListener('thought', (e: MessageEvent) => {
-        const data = JSON.parse(e.data)
-        chatStore.pushMessage({
-          role: 'system',
-          content: data.content,
-          timestamp: new Date().toLocaleTimeString(),
-          thought: '',
-          type: 'thought',
-          agent: data.agent || 'Agent',
-        })
-      })
-    }
   }
 
   function disconnect() {

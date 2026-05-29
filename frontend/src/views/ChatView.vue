@@ -6,47 +6,12 @@
     <header class="chat-header">
       <h1>Safe-CLI-Agent</h1>
       <div class="header-actions">
-        <el-button size="small" @click="toggleContextPanel">
-          {{ showContextPanel ? '关闭上下文' : '上下文' }}
-        </el-button>
-        <el-button size="small" @click="clearContext" :disabled="chatStore.isThinking">
-          清空
-        </el-button>
         <el-button size="small" @click="$router.push('/tools')">
           工具设置
         </el-button>
         <div class="status-indicator" :class="{ connected: chatStore.isConnected }"></div>
       </div>
     </header>
-
-    <!-- 上下文面板 -->
-    <div class="context-panel" v-if="showContextPanel">
-      <div class="context-panel-header">
-        <span>上下文面板</span>
-        <span class="context-panel-stats">
-          Step {{ ctxStatus.step }} | Token ~{{ ctxStatus.total_count * 200 }} | {{ ctxStatus.total_count }} 条消息
-        </span>
-      </div>
-      <div class="context-panel-policy">
-        Policy: worker (完整{{ ctxStatus.policy?.tool_full_turns }} / 截断{{ ctxStatus.policy?.tool_truncate_turns }} / 遗忘{{ ctxStatus.policy?.tool_max_turns }})
-        <span v-if="ctxStatus.summary_count" class="ctx-summary-badge">{{ ctxStatus.summary_count }} 条摘要</span>
-      </div>
-      <div class="context-panel-list">
-        <div
-          v-for="(msg, idx) in ctxStatus.messages"
-          :key="idx"
-          class="context-msg"
-          :class="`ctx-stage-${msg.stage}`"
-        >
-          <span class="ctx-stage-icon">{{ stageIcon(msg.stage) }}</span>
-          <span class="ctx-role">{{ msg.role }}</span>
-          <span class="ctx-sender">{{ msg.tool_name || msg.sender }}</span>
-          <span class="ctx-age">age:{{ msg.age }}</span>
-          <span class="ctx-preview">{{ msg.preview }}</span>
-          <span class="ctx-len">{{ msg.content_len }}b</span>
-        </div>
-      </div>
-    </div>
 
     <div class="chat-body">
       <!-- 左侧历史对话面板 -->
@@ -65,7 +30,8 @@
           />
           <div v-if="chatStore.isThinking" class="thinking-indicator">
             <div class="dot-pulse"></div>
-            <span>Agent 正在思考...</span>
+            <span v-if="chatStore.currentTool">正在执行: {{ chatStore.currentTool }}...</span>
+            <span v-else>Agent 正在思考...</span>
           </div>
         </div>
 
@@ -129,6 +95,8 @@
         </div>
       </div>
 
+      <!-- 右侧上下文面板 -->
+      <ContextPanel ref="contextPanelRef" />
     </div>
   </div>
 </template>
@@ -137,17 +105,19 @@
 import { ref, computed, watch, nextTick, onMounted, onActivated } from 'vue'
 import { sendMessage, sendCuratorTask, checkConnection } from '@/api/agent'
 import api from '@/api/agent'
-import { executeCommandPlugin, saveSessionMessage } from '@/api/config'
+import { executeCommandPlugin } from '@/api/config'
 import { useChatStore } from '@/stores/chat'
 import { useSSE } from '@/composables/useSSE'
 import MessageBubble from '@/components/MessageBubble.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import HistoryPanel from '@/components/HistoryPanel.vue'
+import ContextPanel from '@/components/ContextPanel.vue'
 import TitleBar from '@/components/TitleBar.vue'
 
 const chatStore = useChatStore()
 const { connect, disconnect } = useSSE()
 const historyPanelRef = ref<InstanceType<typeof HistoryPanel> | null>(null)
+const contextPanelRef = ref<InstanceType<typeof ContextPanel> | null>(null)
 
 // 防止 handleConfirm 清除 pending 时触发 handleCancel
 let isConfirming = false
@@ -168,34 +138,6 @@ interface CommandHint {
 const commandHints = ref<CommandHint[]>([])
 const showHints = ref(false)
 const selectedHint = ref(-1)
-
-// 上下文面板
-const showContextPanel = ref(false)
-const ctxStatus = ref<{
-  step: number; policy: any; messages: any[];
-  summary_count: number; total_count: number;
-}>({ step: 0, policy: null, messages: [], summary_count: 0, total_count: 0 })
-
-function stageIcon(stage: string): string {
-  const icons: Record<string, string> = {
-    locked: '\u{1F512}', full: '\u{1F4C4}',
-    truncated: '\u{2702}\u{FE0F}', oneline: '\u{1F4DD}',
-    forgotten: '\u{274C}', summary: '\u{2705}',
-  }
-  return icons[stage] || '\u{2753}'
-}
-
-async function fetchContextStatus() {
-  try {
-    const resp = await api.get('/agent/context')
-    ctxStatus.value = resp.data
-  } catch { /* ignore */ }
-}
-
-function toggleContextPanel() {
-  showContextPanel.value = !showContextPanel.value
-  if (showContextPanel.value) fetchContextStatus()
-}
 
 // 加载命令插件 — command_trigger 完全由 API 提供，不再硬编码
 async function loadCommandHints() {
@@ -304,8 +246,8 @@ async function handleSend() {
     thought: '',
     type: 'text' as const,
   }
+  // pushMessage 内部已自动保存到 session，无需重复调用
   chatStore.pushMessage(userMsg)
-  saveMessageToSession(userMsg)
 
   // /help 命令直接返回帮助信息
   if (msg.toLowerCase() === '/help') {
@@ -353,7 +295,7 @@ async function handleSend() {
         return
       }
     } else {
-      response = await sendMessage(msg)
+      response = await sendMessage(msg, false, chatStore.currentSessionId)
     }
 
     if (response.request_id) {
@@ -386,9 +328,8 @@ async function handleSend() {
 // Session 管理
 // ============================================================
 
-// 新建对话
+// 新建对话（HistoryPanel 已创建 session 并设置 currentSessionId，这里只清消息）
 function handleNewChat() {
-  chatStore.currentSessionId = null
   chatStore.clearMessages()
 }
 
@@ -400,14 +341,14 @@ function handleResumeSession(data: { session_id: string; messages: any[]; tool_n
 }
 
 // 保存消息到当前 session
-async function saveMessageToSession(msg: any) {
-  if (!chatStore.currentSessionId) return
-  try {
-    await saveSessionMessage(chatStore.currentSessionId, msg)
-  } catch (e) {
-    console.error('保存消息失败:', e)
-  }
-}
+// async function saveMessageToSession(msg: any) {
+//   if (!chatStore.currentSessionId) return
+//   try {
+//     await saveSessionMessage(chatStore.currentSessionId, msg)
+//   } catch (e) {
+//     console.error('保存消息失败:', e)
+//   }
+// }
 
 // 自动创建 session（首条消息时）
 async function ensureSession() {
@@ -431,7 +372,7 @@ async function handleConfirm(guidance: string = '') {
   chatStore.isThinking = true
 
   try {
-    const response = await api.post('/agent/chat/confirm', { message: guidance })
+    const response = await api.post('/agent/chat/confirm', { message: guidance, session_id: chatStore.currentSessionId })
     if (response.data.request_id) {
       connect(response.data.request_id)
     } else {
@@ -497,17 +438,6 @@ async function handleCancel(guidance: string = '') {
     type: 'text',
     agent: 'System',
   })
-}
-
-async function clearContext() {
-  if (!confirm('确定清空上下文？这将清除所有对话历史。')) return
-  try {
-    await api.delete('/agent/history')
-    chatStore.clearMessages()
-  } catch {
-    // 即使后端请求失败，也清空前端
-    chatStore.clearMessages()
-  }
 }
 
 function stopAgent() {
@@ -608,9 +538,28 @@ onActivated(() => {
   flex: 1;
   overflow-y: auto;
   padding: 20px;
+  padding-right: 12px;
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+/* 自定义滚动条 */
+.chat-messages::-webkit-scrollbar {
+  width: 6px;
+}
+
+.chat-messages::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-messages::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+.chat-messages::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
 }
 
 .thinking-indicator {
@@ -764,59 +713,6 @@ onActivated(() => {
 .stop-button:hover {
   background: #f78989;
 }
-
-/* 上下文面板 */
-.context-panel {
-  max-height: 300px;
-  overflow-y: auto;
-  margin: 0 16px;
-  padding: 10px 14px;
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
-  font-size: 12px;
-}
-.context-panel-header {
-  display: flex; justify-content: space-between;
-  padding-bottom: 6px; margin-bottom: 6px;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-  font-weight: 600; color: rgba(255,255,255,0.85);
-}
-.context-panel-stats { color: rgba(255,255,255,0.5); font-weight: 400; }
-.context-panel-policy {
-  padding-bottom: 8px; margin-bottom: 6px;
-  border-bottom: 1px solid rgba(255,255,255,0.04);
-  color: rgba(255,255,255,0.5); font-size: 11px;
-}
-.ctx-summary-badge {
-  margin-left: 8px; padding: 1px 6px;
-  background: rgba(103,194,58,0.15); color: #67c23a;
-  border-radius: 3px; font-size: 10px;
-}
-.context-panel-list { display: flex; flex-direction: column; gap: 3px; }
-.context-msg {
-  display: flex; align-items: center; gap: 6px;
-  padding: 3px 6px; border-radius: 4px;
-  background: rgba(255,255,255,0.03);
-}
-.ctx-stage-icon { width: 18px; text-align: center; flex-shrink: 0; }
-.ctx-role {
-  padding: 0 4px; border-radius: 2px; font-size: 10px;
-  background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.6);
-  flex-shrink: 0; min-width: 28px; text-align: center;
-}
-.ctx-sender { color: rgba(255,255,255,0.7); flex-shrink: 0; max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ctx-age { color: rgba(255,255,255,0.35); font-size: 10px; flex-shrink: 0; }
-.ctx-preview { color: rgba(255,255,255,0.55); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ctx-len { color: rgba(255,255,255,0.3); font-size: 10px; flex-shrink: 0; }
-
-/* 衰减阶段着色 */
-.ctx-stage-locked { border-left: 2px solid #e6a23c; }
-.ctx-stage-summary { border-left: 2px solid #67c23a; }
-.ctx-stage-full { border-left: 2px solid rgba(255,255,255,0.2); }
-.ctx-stage-truncated { border-left: 2px solid #e6a23c; }
-.ctx-stage-oneline { border-left: 2px solid #f56c6c; }
-.ctx-stage-forgotten { opacity: 0.3; border-left: 2px solid rgba(255,255,255,0.05); }
 
 /* 确认浮动条 */
 .confirm-chip {

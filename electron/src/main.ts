@@ -73,6 +73,13 @@ async function createWindow(): Promise<BrowserWindow> {
     mainWindow.loadURL('http://localhost:8000')
   }
 
+  // F12 切换开发者工具（所有模式可用）
+  mainWindow.webContents.on('before-input-event', (_event, input) => {
+    if (input.key === 'F12' && input.type === 'keyDown') {
+      mainWindow?.webContents.toggleDevTools()
+    }
+  })
+
   // 关闭窗口 → 最小化到托盘（而非退出）
   mainWindow.on('close', (event) => {
     if (!app.isQuitting) {

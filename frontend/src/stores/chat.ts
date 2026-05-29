@@ -59,6 +59,7 @@ const store = reactive({
   messages: [] as Message[],
   isThinking: false,
   isConnected: false,
+  currentTool: '',  // 当前正在执行的工具名（thinking 时显示）
   pendingCommand: '',
   pendingRequestId: '',
   pendingThought: '',
@@ -68,6 +69,7 @@ const store = reactive({
   // === Session 管理 ===
   currentSessionId: null as string | null,
   sessions: [] as SessionInfo[],
+  toolsUpdatedAt: 0,  // 工具配置更新时间戳，用于触发 HistoryPanel 刷新
   pushMessage,
   setPending,
   clearPending,

@@ -6,6 +6,12 @@
         <h1>工具设置</h1>
       </div>
       <div class="header-right">
+        <span class="session-binding" v-if="chatStore.currentSessionId">
+          绑定会话: {{ chatStore.currentSessionId.slice(0, 8) }}...
+        </span>
+        <span class="session-binding unbound" v-else>
+          未绑定会话
+        </span>
         <span class="status-text" v-if="saved">已保存</span>
         <button class="save-btn" @click="saveConfig" :disabled="saving">
           {{ saving ? '保存中...' : '保存配置' }}
@@ -185,6 +191,7 @@ import api from '@/api/agent'
 import { regenerateCompose, updateSessionToolNames } from '@/api/config'
 import { useChatStore } from '@/stores/chat'
 
+const chatStore = useChatStore()
 const availableTools = ref<(PluginDetail & { _starting?: boolean; _stopping?: boolean })[]>([])
 const saving = ref(false)
 const saved = ref(false)
@@ -380,7 +387,6 @@ async function saveConfig() {
     await api.post('/agent/tools', { tool_names: selectedTools.value })
 
     // 2. 同步到当前 session（如果有的话）
-    const chatStore = useChatStore()
     console.log('[ToolsView] saveConfig: currentSessionId=', chatStore.currentSessionId)
     if (chatStore.currentSessionId) {
       try {
@@ -406,6 +412,9 @@ async function saveConfig() {
         console.warn(`自动启动容器 ${tool.name} 失败:`, e)
       }
     }
+
+    // 通知 HistoryPanel 刷新会话列表（工具标签更新）
+    chatStore.toolsUpdatedAt = Date.now()
 
     saved.value = true
     setTimeout(() => { saved.value = false }, 2000)
@@ -477,6 +486,16 @@ onMounted(loadConfig)
 .status-text {
   color: #67c23a;
   font-size: 13px;
+}
+
+.session-binding {
+  font-size: 12px;
+  color: #79bbff;
+  font-family: 'Fira Code', monospace;
+}
+
+.session-binding.unbound {
+  color: rgba(255, 255, 255, 0.4);
 }
 
 .save-btn {

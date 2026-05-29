@@ -294,7 +294,7 @@ def _rebind_callbacks(agent: BaseAgent, request_id: str):
     agent.on_thought = emit_thought
 
 
-async def run_agent_with_streaming(agent: BaseAgent, request_id: str):
+async def run_agent_with_streaming(agent: BaseAgent, request_id: str, session_id: str = None):
     """驱动 Agent 执行，通过 SSE 队列实时推送工具结果"""
     queue = get_queue(request_id)
     MAX_STEPS = 50
@@ -303,6 +303,10 @@ async def run_agent_with_streaming(agent: BaseAgent, request_id: str):
         logger.info(f"[Step {step_num + 1}] 当前状态: {agent.state_machine._current_state_enum.value}")
         transition = await agent.step()
         logger.info(f"[Step {step_num + 1}] 转换到: {transition.state.value}")
+
+        # 每步执行后保存上下文到 session
+        if session_id:
+            _save_context_to_session(session_id, agent)
 
         if agent.state_machine.is_in_state(AgentState.WAITING_CONFIRMATION):
             waiting_state = agent.state_machine._states[AgentState.WAITING_CONFIRMATION]
@@ -340,10 +344,21 @@ async def run_agent_with_streaming(agent: BaseAgent, request_id: str):
         await queue.put({"event": "final", "data": {"content": "达到最大执行步数，任务中止", "agent": agent.name}})
 
 
-async def run_with_pending_check(agent: BaseAgent, request_id: str):
+def _save_context_to_session(session_id: str, agent: BaseAgent):
+    """将当前上下文状态保存到 session 文件"""
+    try:
+        sm = get_session_manager()
+        if sm and agent.context_manager:
+            context_data = agent.context_manager.to_dict()
+            sm.save_context(session_id, context_data)
+    except Exception as e:
+        logger.warning(f"保存上下文到 session 失败: {e}")
+
+
+async def run_with_pending_check(agent: BaseAgent, request_id: str, session_id: str = None):
     """运行 Agent 并在挂起时保存实例"""
     try:
-        await asyncio.wait_for(run_agent_with_streaming(agent, request_id), timeout=120)
+        await asyncio.wait_for(run_agent_with_streaming(agent, request_id, session_id), timeout=300)
         if agent.state_machine.is_in_state(AgentState.WAITING_CONFIRMATION):
             set_pending_agent(agent)
             logger.info("Agent 挂起，等待用户确认")

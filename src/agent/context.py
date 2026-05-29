@@ -290,6 +290,25 @@ class ContextManager:
         self.final_answer = None
         self.current_step = 0
 
+    # ============================================================
+    # 持久化（序列化/反序列化）
+    # ============================================================
+
+    def to_dict(self) -> Dict[str, Any]:
+        """将上下文状态序列化为字典（用于持久化）"""
+        return {
+            "messages": [m.model_dump() for m in self.messages],
+            "context_summaries": [m.model_dump() for m in self.context_summaries],
+            "current_step": self.current_step,
+        }
+
+    def from_dict(self, data: Dict[str, Any]) -> None:
+        """从字典恢复上下文状态"""
+        self.messages = [Message.model_validate(m) for m in data.get("messages", [])]
+        self.context_summaries = [Message.model_validate(m) for m in data.get("context_summaries", [])]
+        self.current_step = data.get("current_step", 0)
+        logger.info(f"上下文已恢复: {len(self.messages)} 条消息, {len(self.context_summaries)} 条摘要, step={self.current_step}")
+
     def format_history(self, format_type: str = "simple") -> str:
         """格式化历史消息"""
         if format_type == "simple":

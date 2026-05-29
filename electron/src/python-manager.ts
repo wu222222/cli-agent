@@ -143,18 +143,23 @@ export class PythonManager {
       stdio: ['ignore', 'pipe', 'pipe'],
     })
 
-    // 收集启动日志
+    // 收集启动日志（启动成功后停止收集，但保留 stdout/stderr 转发）
     let startupLog = ''
+    let collecting = true
     const onStdout = (data: Buffer): void => {
       const text = data.toString('utf-8')
-      startupLog += text
-      if (startupLog.length > 5000) startupLog = startupLog.slice(-5000)
+      if (collecting) {
+        startupLog += text
+        if (startupLog.length > 5000) startupLog = startupLog.slice(-5000)
+      }
       process.stdout.write(`[python] ${text}`)
     }
     const onStderr = (data: Buffer): void => {
       const text = data.toString('utf-8')
-      startupLog += text
-      if (startupLog.length > 5000) startupLog = startupLog.slice(-5000)
+      if (collecting) {
+        startupLog += text
+        if (startupLog.length > 5000) startupLog = startupLog.slice(-5000)
+      }
       process.stderr.write(`[python:err] ${text}`)
     }
 
@@ -170,9 +175,8 @@ export class PythonManager {
 
     try {
       await this.waitForReady()
-      // 启动成功后停止收集 startupLog（后续日志仍输出到 console）
-      this.process.stdout?.off('data', onStdout)
-      this.process.stderr?.off('data', onStderr)
+      // 启动成功后停止收集 startupLog（stdout/stderr 转发保留）
+      collecting = false
       console.log(`[PythonManager] Python backend ready (port: ${this.port})`)
     } catch (err: any) {
       const error = new Error(

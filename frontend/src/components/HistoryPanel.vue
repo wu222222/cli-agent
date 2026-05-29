@@ -1,18 +1,13 @@
 <template>
-  <div class="history-panel" :class="{ collapsed: isCollapsed }">
-    <!-- 折叠态：只显示箭头 -->
-    <div v-if="isCollapsed" class="collapsed-icon" @click="isCollapsed = false">
-      <span title="展开历史对话">▶</span>
-    </div>
-
-    <!-- 展开态 -->
-    <div v-else class="panel-content">
-      <!-- 顶部：新建按钮 + 折叠按钮 -->
+  <div class="history-panel-wrapper" :class="{ collapsed: isCollapsed }">
+  <div class="history-panel">
+    <!-- 面板内容（始终渲染，折叠时被隐藏） -->
+    <div class="panel-content">
+      <!-- 顶部：新建按钮 -->
       <div class="panel-header">
         <button class="new-chat-btn" @click="handleNewChat">
           <span>＋</span> 新对话
         </button>
-        <button class="collapse-btn" @click="isCollapsed = true" title="折叠">◀</button>
       </div>
 
       <!-- 对话列表 -->
@@ -68,10 +63,20 @@
       </div>
     </div>
   </div>
+
+  <!-- 边缘折叠/展开箭头（在 wrapper 内、panel 外，不被 overflow 裁剪） -->
+  <div
+    class="panel-toggle"
+    :title="isCollapsed ? '展开历史对话' : '折叠历史对话'"
+    @click="isCollapsed = !isCollapsed"
+  >
+    <span>{{ isCollapsed ? '▶' : '◀' }}</span>
+  </div>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import type { SessionInfo } from '@/types'
 import {
   listSessions,
@@ -198,43 +203,46 @@ defineExpose({
 })
 
 onMounted(() => {
+  // 从 chatStore 恢复选中的 session（从其他页面返回时）
+  if (chatStore.currentSessionId) {
+    currentSessionId.value = chatStore.currentSessionId
+  }
+  loadSessions()
+})
+
+// 工具配置变更时刷新会话列表（更新工具标签）
+watch(() => chatStore.toolsUpdatedAt, () => {
   loadSessions()
 })
 </script>
 
 <style scoped>
-.history-panel {
+.history-panel-wrapper {
+  position: relative;
+  flex-shrink: 0;
   width: 240px;
+  transition: width 0.2s ease;
+}
+
+.history-panel-wrapper.collapsed {
+  width: 0;
+}
+
+.history-panel {
+  width: 100%;
+  height: 100%;
   background: #1a1b23;
-  border-right: 1px solid #2d2e3a;
   display: flex;
   flex-direction: column;
-  transition: width 0.2s ease;
   overflow: hidden;
-}
-
-.history-panel.collapsed {
-  width: 40px;
-}
-
-.collapsed-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 48px;
-  cursor: pointer;
-  font-size: 18px;
-  color: #8b8d9a;
-}
-
-.collapsed-icon:hover {
-  color: #fff;
 }
 
 .panel-content {
   display: flex;
   flex-direction: column;
   height: 100%;
+  width: 240px;
+  border-right: 1px solid #2d2e3a;
 }
 
 .panel-header {
@@ -261,19 +269,6 @@ onMounted(() => {
 
 .new-chat-btn:hover {
   background: #3d3e4a;
-}
-
-.collapse-btn {
-  background: none;
-  border: none;
-  color: #8b8d9a;
-  font-size: 16px;
-  cursor: pointer;
-  padding: 4px 8px;
-}
-
-.collapse-btn:hover {
-  color: #fff;
 }
 
 .session-list {
@@ -367,6 +362,40 @@ onMounted(() => {
 
 .delete-btn:hover {
   color: #ef4444;
+}
+
+/* 边缘折叠/展开箭头 */
+.panel-toggle {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #8b8d9a;
+  font-size: 14px;
+  background: #1a1b23;
+  border: 1px solid #2d2e3a;
+  border-left: none;
+  border-radius: 0 6px 6px 0;
+  z-index: 10;
+  transition: color 0.15s, left 0.2s ease;
+  left: 240px;
+}
+
+.panel-toggle:hover {
+  color: #fff;
+}
+
+/* 折叠态：箭头移到左边缘 */
+.history-panel-wrapper.collapsed .panel-toggle {
+  left: 0;
+  border-left: 1px solid #2d2e3a;
+  border-right: none;
+  border-radius: 6px 0 0 6px;
 }
 
 /* 删除确认对话框 */

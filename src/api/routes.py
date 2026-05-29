@@ -69,12 +69,13 @@ async def stream_events(request_id: str = Query(...)):
 
 @router.post("/agent/chat", response_model=ChatResponse)
 async def chat_with_agent(request: ChatRequest):
-    logger.info(f"收到请求: message={request.message!r}, confirmed={request.confirmed}, pending={get_pending_agent() is not None}")
+    logger.info(f"收到请求: message={request.message!r}, confirmed={request.confirmed}, session_id={request.session_id}, pending={get_pending_agent() is not None}")
 
     _get_or_init_components()
 
     request_id = str(uuid.uuid4())[:8]
     create_queue(request_id)
+    session_id = request.session_id
 
     # --- 情况 A：确认 ---
     if request.confirmed and get_pending_agent() is not None:
@@ -86,7 +87,7 @@ async def chat_with_agent(request: ChatRequest):
         if isinstance(waiting_state.data, ThinkingToExecutingData):
             waiting_state.data.confirmed = True
 
-        asyncio.create_task(run_agent_with_streaming(agent, request_id))
+        asyncio.create_task(run_agent_with_streaming(agent, request_id, session_id))
         return ChatResponse(request_id=request_id, type="text", agent=agent.name)
 
     # --- 情况 B：新消息 ---
@@ -97,7 +98,7 @@ async def chat_with_agent(request: ChatRequest):
     agent._prepare_context(request.message)
     agent.state_machine.transition(AgentState.THINKING)
 
-    asyncio.create_task(run_with_pending_check(agent, request_id))
+    asyncio.create_task(run_with_pending_check(agent, request_id, session_id))
     return ChatResponse(request_id=request_id, type="text", agent=agent.name)
 
 
@@ -108,6 +109,7 @@ async def confirm_command(request: ChatRequest):
 
     request_id = str(uuid.uuid4())[:8]
     create_queue(request_id)
+    session_id = request.session_id
 
     agent = get_pending_agent()
     set_pending_agent(None)
@@ -119,7 +121,7 @@ async def confirm_command(request: ChatRequest):
 
     _rebind_callbacks(agent, request_id)
 
-    asyncio.create_task(run_with_pending_check(agent, request_id))
+    asyncio.create_task(run_with_pending_check(agent, request_id, session_id))
     return ChatResponse(request_id=request_id, type="text", agent=agent.name)
 
 
@@ -684,7 +686,7 @@ async def delete_session(session_id: str):
 
 @router.post("/agent/sessions/{session_id}/resume")
 async def resume_session(session_id: str):
-    """恢复会话（加载消息 + 恢复插件配置）"""
+    """恢复会话（加载消息 + 同步当前全局工具配置到 session）"""
     sm = get_session_manager()
     if not sm:
         logger.error("[resume_session] SessionManager is None!")
@@ -694,15 +696,32 @@ async def resume_session(session_id: str):
         logger.error(f"[resume_session] Session not found: {session_id}")
         return {"error": "会话不存在"}
 
-    # 恢复 WorkerAgent 工具配置
-    tool_names = session.get("tool_names", [])
-    logger.info(f"[resume_session] session_id={session_id}, tool_names={tool_names}, messages={len(session.get('messages', []))}")
-    set_worker_tool_names(tool_names)
+    session_tool_names = session.get("tool_names", [])
+    current_tool_names = get_worker_tool_names()
+
+    logger.info(f"[resume_session] session_id={session_id}, session_tools={session_tool_names}, global_tools={current_tool_names}, messages={len(session.get('messages', []))}")
+
+    # 用当前全局工具配置更新 session（用户最新选择优先）
+    if current_tool_names and set(current_tool_names) != set(session_tool_names):
+        logger.info(f"[resume_session] 同步全局工具到 session: {current_tool_names}")
+        sm.update_tool_names(session_id, current_tool_names)
+        tool_names = current_tool_names
+    else:
+        tool_names = current_tool_names or session_tool_names
 
     # 自动启动相关容器
     _get_or_init_components()
     from .services import _auto_start_containers_for_tools
     _auto_start_containers_for_tools(tool_names)
+
+    # 恢复上下文状态
+    context_data = sm.load_context(session_id)
+    if context_data:
+        from .services import get_context_manager
+        cm = get_context_manager()
+        if cm:
+            cm.from_dict(context_data)
+            logger.info(f"[resume_session] 上下文已恢复: {len(cm.messages)} 条消息")
 
     return {
         "session_id": session_id,

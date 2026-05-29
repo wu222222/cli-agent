@@ -141,3 +141,33 @@ class SessionManager:
         except Exception as e:
             logger.error(f"删除会话失败: {session_id} - {e}")
             return False
+
+    def save_context(self, session_id: str, context_data: dict) -> bool:
+        """保存上下文状态到会话文件"""
+        filepath = self._session_path(session_id)
+        if not os.path.exists(filepath):
+            return False
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            data["context"] = context_data
+            data["updated_at"] = datetime.now().isoformat()
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            return True
+        except Exception as e:
+            logger.error(f"保存上下文失败: {session_id} - {e}")
+            return False
+
+    def load_context(self, session_id: str) -> Optional[dict]:
+        """从会话文件加载上下文状态"""
+        filepath = self._session_path(session_id)
+        if not os.path.exists(filepath):
+            return None
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data.get("context")
+        except Exception as e:
+            logger.error(f"加载上下文失败: {session_id} - {e}")
+            return None

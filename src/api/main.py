@@ -21,7 +21,7 @@ if sys.platform == "win32":
 from .routes import router
 from src.logger import setup_logger, get_logger
 
-# 配置全局日志：控制台彩色 + 文件输出（带时间戳）
+# 配置全局日志：控制台彩色 + 文件输出（RotatingFileHandler 自动轮转）
 setup_logger(
     level=logging.INFO,
     log_file=os.path.join("logs", "server.log"),

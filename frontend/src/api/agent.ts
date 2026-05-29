@@ -13,9 +13,9 @@ export interface ChatApiResponse extends ApiResponse {
   request_id: string
 }
 
-export const sendMessage = async (message: string, confirmed: boolean = false): Promise<ChatApiResponse> => {
+export const sendMessage = async (message: string, confirmed: boolean = false, sessionId?: string): Promise<ChatApiResponse> => {
   const endpoint = confirmed ? '/agent/chat/confirm' : '/agent/chat'
-  const response = await api.post(endpoint, { message, confirmed })
+  const response = await api.post(endpoint, { message, confirmed, session_id: sessionId })
   return response.data
 }
 
@@ -27,6 +27,7 @@ export const sendCuratorTask = async (task: string): Promise<ChatApiResponse> =>
 export const connectStream = (requestId: string, handlers: {
   onToolStart?: (data: { agent: string; tool: string; tool_type?: string; content: string; command?: string }) => void
   onToolResult?: (data: { agent: string; tool: string; tool_type?: string; content: string; command?: string }) => void
+  onThought?: (data: { agent: string; content: string }) => void
   onConfirm?: (data: { content: string; agent: string; thought?: string; command?: string; tool_name?: string }) => void
   onFinal?: (data: { content: string; agent: string }) => void
   onError?: (data: { content: string }) => void
@@ -39,6 +40,9 @@ export const connectStream = (requestId: string, handlers: {
   })
   es.addEventListener('tool_result', (e) => {
     handlers.onToolResult?.(JSON.parse(e.data))
+  })
+  es.addEventListener('thought', (e) => {
+    handlers.onThought?.(JSON.parse(e.data))
   })
   es.addEventListener('confirm', (e) => {
     handlers.onConfirm?.(JSON.parse(e.data))
