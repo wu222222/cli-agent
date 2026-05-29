@@ -115,7 +115,15 @@ async def setup_save(body: dict):
         lines.append(f"{key}={value}\n")
         return lines
 
-    lines = set_env(lines, "DASHSCOPE_API_KEY", api_key)
+    # API Key: 如果用户留空但系统环境变量有值，不写入 .env（保留环境变量）
+    env_api_key = os.getenv("DASHSCOPE_API_KEY", "")
+    if api_key and api_key != env_api_key:
+        lines = set_env(lines, "DASHSCOPE_API_KEY", api_key)
+    elif not api_key and env_api_key:
+        pass  # 系统变量有值，用户留空，不写入 .env
+    else:
+        lines = set_env(lines, "DASHSCOPE_API_KEY", api_key)
+
     lines = set_env(lines, "DASHSCOPE_BASE_URL", base_url)
     lines = set_env(lines, "LLM_MODEL", model)
 

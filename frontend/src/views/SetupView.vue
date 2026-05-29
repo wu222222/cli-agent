@@ -1,9 +1,18 @@
 <template>
   <div class="setup-container">
-    <div class="setup-card setup-card-wide">
-      <!-- 关闭按钮 -->
-      <button class="close-btn" @click="exitApp" title="退出应用">✕</button>
+    <!-- 标题栏 -->
+    <TitleBar>
+      <template #right>
+        <button v-if="isStandalone" class="title-icon-btn" @click="exitApp" title="退出应用">
+          <svg width="14" height="14" viewBox="0 0 12 12"><path d="M2 2L10 10M10 2L2 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </button>
+        <button v-else class="title-icon-btn" @click="skipSetup" title="返回">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+        </button>
+      </template>
+    </TitleBar>
 
+    <div class="setup-card">
       <div class="setup-header">
         <div class="setup-logo">🛡</div>
         <h1 class="setup-title">Safe-CLI-Agent</h1>
@@ -143,9 +152,12 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { markConfigured } from '@/router'
 import api from '@/api/agent'
+import TitleBar from '@/components/TitleBar.vue'
 
 const router = useRouter()
 const activeTab = ref<'api' | 'plugins'>('api')
+// 首次启动 = 未配置 = standalone（显示关闭按钮）；已配置 = 从设置进入（显示返回按钮）
+const isStandalone = ref(true)
 
 // === API 配置 ===
 const saving = ref(false)
@@ -192,6 +204,8 @@ onMounted(async () => {
     status.value = resp.data
     form.value.base_url = resp.data.base_url || ''
     form.value.model = resp.data.model || ''
+    // 已配置 = 从设置按钮进入，非首次启动
+    isStandalone.value = !resp.data.configured
   } catch {}
 })
 
@@ -296,49 +310,43 @@ async function savePluginConfig() {
 .setup-container {
   height: 100vh;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
   background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
   font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif;
 }
 
-.setup-card {
-  position: relative;
-  padding: 32px 40px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 16px;
-  backdrop-filter: blur(20px);
-  text-align: center;
-  max-height: 90vh;
-  overflow-y: auto;
-}
-
-.setup-card-wide {
-  width: 580px;
-}
-
-.close-btn {
-  position: absolute;
-  top: 12px;
-  right: 12px;
+/* 标题栏图标按钮 */
+.title-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 28px;
   height: 28px;
   background: none;
   border: none;
-  color: rgba(255, 255, 255, 0.35);
-  font-size: 14px;
+  color: rgba(255, 255, 255, 0.4);
   cursor: pointer;
   border-radius: 6px;
   transition: all 0.15s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
-.close-btn:hover {
-  background: #e81123;
-  color: #fff;
+.title-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.setup-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 32px 40px;
+  overflow-y: auto;
+}
+
+.setup-card-wide {
+  width: 100%;
+  max-width: 580px;
 }
 
 .setup-header {
