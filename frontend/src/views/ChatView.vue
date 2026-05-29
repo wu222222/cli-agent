@@ -1,17 +1,10 @@
 <template>
   <div class="chat-container">
-    <!-- 自定义标题栏（Electron 无边框窗口） -->
-    <TitleBar />
-
-    <header class="chat-header">
-      <h1>Safe-CLI-Agent</h1>
-      <div class="header-actions">
-        <el-button size="small" @click="$router.push('/tools')">
-          工具设置
-        </el-button>
-        <div class="status-indicator" :class="{ connected: chatStore.isConnected }"></div>
-      </div>
-    </header>
+    <!-- 统一标题栏 -->
+    <TitleBar>
+      <button class="header-btn" @click="$router.push('/tools')">工具设置</button>
+      <div class="status-indicator" :class="{ connected: chatStore.isConnected }"></div>
+    </TitleBar>
 
     <div class="chat-body">
       <!-- 左侧历史对话面板 -->
@@ -372,7 +365,7 @@ async function handleConfirm(guidance: string = '') {
   chatStore.isThinking = true
 
   try {
-    const response = await api.post('/agent/chat/confirm', { message: guidance, session_id: chatStore.currentSessionId || undefined })
+    const response = await api.post('/agent/chat/confirm', { message: guidance, session_id: chatStore.currentSessionId })
     if (response.data.request_id) {
       connect(response.data.request_id)
     } else {
@@ -486,26 +479,21 @@ onActivated(() => {
   font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif;
 }
 
-.chat-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 20px;
-  background: rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+/* 标题栏内按钮 */
+.header-btn {
+  padding: 4px 14px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
 }
 
-.chat-header h1 {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-}
-
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+.header-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
 }
 
 .status-indicator {
@@ -587,9 +575,7 @@ onActivated(() => {
 
 .chat-input {
   padding: 15px 20px;
-  background: rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(10px);
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: transparent;
   position: relative;
 }
 
@@ -647,28 +633,31 @@ onActivated(() => {
 .input-wrapper {
   display: flex;
   gap: 10px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  padding: 8px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 14px;
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(20px);
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
 }
 
 .input-wrapper:focus-within {
-  border-color: #409eff;
-  box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.2);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(64, 158, 255, 0.4);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(64, 158, 255, 0.15);
 }
 
 .input-wrapper textarea {
   flex: 1;
   background: transparent;
   border: none;
-  color: inherit;
+  color: rgba(255, 255, 255, 0.9);
   font-size: 14px;
   line-height: 1.5;
   resize: none;
   min-height: 24px;
   max-height: 150px;
-  padding: 4px 0;
+  padding: 2px 0;
   outline: none;
 }
 
