@@ -31,9 +31,12 @@
         <p>Docker 已安装但未启动。请打开 Docker Desktop 启动服务。</p>
       </div>
 
-      <!-- API Key 来源提示 -->
-      <div v-if="status.api_key_source === 'env'" class="setup-info">
-        <p>检测到系统环境变量 DASHSCOPE_API_KEY 已设置，无需重复配置。</p>
+      <!-- 环境变量来源提示 -->
+      <div v-if="status.config_source === 'env'" class="setup-info">
+        <p>检测到系统环境变量已配置，无需重复填写。</p>
+      </div>
+      <div v-else-if="status.config_source === 'partial'" class="setup-warning warn-yellow">
+        <p>检测到部分配置，请补全以下必填项。</p>
       </div>
 
       <!-- 配置表单 -->
@@ -47,7 +50,7 @@
             class="form-input"
           />
           <span class="form-hint">
-            <template v-if="status.api_key_source === 'env'">已从系统环境变量读取（留空则保留）</template>
+            <template v-if="status.config_source === 'env'">已从系统环境变量读取（留空则保留）</template>
             <template v-else>兼容 OpenAI 格式的 API Key</template>
           </span>
         </div>
@@ -57,7 +60,7 @@
           <input
             v-model="form.base_url"
             type="text"
-            placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
+            placeholder="https://api.openai.com/v1"
             class="form-input"
           />
           <span class="form-hint">兼容 OpenAI 格式的 API 地址</span>
@@ -68,10 +71,10 @@
           <input
             v-model="form.model"
             type="text"
-            :placeholder="status.model || 'qwen3.6-flash'"
+            :placeholder="status.model || 'gpt-4o'"
             class="form-input"
           />
-          <span class="form-hint">如 qwen3.6-flash、gpt-4o、deepseek-chat 等</span>
+          <span class="form-hint">如 gpt-4o、claude-sonnet-4-6、deepseek-chat 等</span>
         </div>
 
         <button
@@ -107,15 +110,15 @@ const status = ref({
   configured: false,
   has_env: false,
   docker_status: 'not_installed' as string,
-  api_key_source: 'none' as string,
+  config_source: 'none' as string,
   api_key: '',
-  base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  base_url: '',
   model: '',
 })
 
 const form = ref({
   api_key: '',
-  base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  base_url: '',
   model: '',
 })
 

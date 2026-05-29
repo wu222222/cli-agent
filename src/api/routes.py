@@ -42,21 +42,16 @@ async def setup_status():
     has_env = os.path.exists(env_path)
 
     api_key = os.getenv("DASHSCOPE_API_KEY", "")
+    base_url = os.getenv("DASHSCOPE_BASE_URL", "")
     model = os.getenv("LLM_MODEL", "")
-    configured = bool(api_key and model)
+    configured = bool(api_key and model and base_url)
 
-    # API Key 来源检测
-    api_key_source = "none"
-    if api_key:
-        api_key_source = "env" if not has_env else "env_file"
-        # 检查 .env 文件中是否有 DASHSCOPE_API_KEY
-        if has_env:
-            with open(env_path, "r", encoding="utf-8") as f:
-                content = f.read()
-            if "DASHSCOPE_API_KEY" in content and api_key:
-                api_key_source = "env_file"
-            elif api_key:
-                api_key_source = "env"
+    # 配置来源检测（env = 系统环境变量, env_file = .env 文件, none = 未配置）
+    config_source = "none"
+    if configured:
+        config_source = "env" if not has_env else "env_file"
+    elif api_key or model or base_url:
+        config_source = "partial"
 
     # Docker 检测：区分未安装 / 已安装未运行 / 正常
     docker_status = "not_installed"
@@ -73,9 +68,9 @@ async def setup_status():
         "configured": configured,
         "has_env": has_env,
         "docker_status": docker_status,
-        "api_key_source": api_key_source,
+        "config_source": config_source,
         "api_key": api_key[:8] + "***" if api_key else "",
-        "base_url": os.getenv("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+        "base_url": base_url,
         "model": model,
     }
 
