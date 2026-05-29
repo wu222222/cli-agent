@@ -714,14 +714,17 @@ async def resume_session(session_id: str):
     from .services import _auto_start_containers_for_tools
     _auto_start_containers_for_tools(session_tool_names)
 
-    # 恢复上下文状态
+    # 恢复上下文状态（先清空旧上下文，再加载新 session 的）
+    from .services import get_context_manager
+    cm = get_context_manager()
+    if cm:
+        cm.clear()
     context_data = sm.load_context(session_id)
-    if context_data:
-        from .services import get_context_manager
-        cm = get_context_manager()
-        if cm:
-            cm.from_dict(context_data)
-            logger.info(f"[resume_session] 上下文已恢复: {len(cm.messages)} 条消息")
+    if context_data and cm:
+        cm.from_dict(context_data)
+        logger.info(f"[resume_session] 上下文已恢复: {len(cm.messages)} 条消息")
+    else:
+        logger.info(f"[resume_session] 无保存的上下文，已清空")
 
     return {
         "session_id": session_id,
