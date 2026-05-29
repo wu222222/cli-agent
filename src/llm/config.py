@@ -16,15 +16,16 @@ class LLMConfig:
     timeout: int = 60
 
     def __post_init__(self):
-        
+
         if self.api_key is None:
             self.api_key = os.getenv("DASHSCOPE_API_KEY", "")
 
-        if not self.api_key:
-            raise ValueError("API Key 未设置，请设置 DASHSCOPE_API_KEY 环境变量")
-
         if self.model is None:
-            raise ValueError("模型 未设置，请设置 LLM_MODEL 环境变量")
+            self.model = os.getenv("LLM_MODEL", "")
+
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.api_key and self.model)
 
     @classmethod
     def from_env(cls) -> "LLMConfig":

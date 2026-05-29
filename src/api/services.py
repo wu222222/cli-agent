@@ -82,8 +82,15 @@ def _get_or_init_components():
     if _llm_client is not None:
         return
 
+    # 检查 LLM 配置是否完整
+    from src.llm.config import LLMConfig
+    config = LLMConfig.from_env()
+    if not config.is_configured:
+        logger.warning("LLM 未配置（缺少 API Key 或 Model），跳过组件初始化")
+        return
+
     logger.info("首次请求，初始化全局组件...")
-    _llm_client = LLMClient()
+    _llm_client = LLMClient(config)
     _context_manager = ContextManager()
     _prompt_manager = PromptManager()
     _tool_registry = ToolRegistry()
