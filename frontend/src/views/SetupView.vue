@@ -340,13 +340,13 @@ async function savePluginConfig() {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 32px 40px;
+  padding: 24px 40px;
   overflow-y: auto;
 }
 
 .setup-card-wide {
   width: 100%;
-  max-width: 580px;
+  max-width: 720px;
 }
 
 .setup-header {
@@ -399,6 +399,10 @@ async function savePluginConfig() {
 
 .tab-content {
   text-align: left;
+  width: 100%;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 /* 环境检测 */
@@ -553,6 +557,8 @@ async function savePluginConfig() {
 .yaml-editor-area {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  width: 100%;
 }
 
 .yaml-toolbar {
@@ -614,7 +620,7 @@ async function savePluginConfig() {
 
 .yaml-textarea {
   width: 100%;
-  min-height: 380px;
+  min-height: 480px;
   padding: 12px;
   background: rgba(0, 0, 0, 0.3);
   border: 1px solid rgba(255, 255, 255, 0.08);
