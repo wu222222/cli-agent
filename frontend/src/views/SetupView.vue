@@ -14,6 +14,10 @@
           <span class="check-icon">{{ dockerIcon }}</span>
           <span>{{ dockerLabel }}</span>
         </div>
+        <div class="check-item" :class="status.has_env ? 'ok' : 'fail'">
+          <span class="check-icon">{{ status.has_env ? '✓' : '✕' }}</span>
+          <span>.env {{ status.has_env ? '已创建' : '未创建' }}</span>
+        </div>
         <div class="check-item" :class="status.configured ? 'ok' : 'pending'">
           <span class="check-icon">{{ status.configured ? '✓' : '○' }}</span>
           <span>API {{ status.configured ? '已配置' : '待配置' }}</span>
