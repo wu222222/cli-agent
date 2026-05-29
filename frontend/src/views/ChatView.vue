@@ -28,22 +28,15 @@
           </div>
         </div>
 
-        <ConfirmDialog
-          :visible="!!chatStore.pendingCommand && !chatStore.pendingMinimized"
+        <!-- 内嵌确认面板（替代模态弹窗） -->
+        <InlineConfirm
+          :visible="!!chatStore.pendingCommand"
           :command="chatStore.pendingCommandText || chatStore.pendingCommand"
           :thought="chatStore.pendingThought"
           :tool-name="chatStore.pendingToolName"
           @confirm="handleConfirm"
           @cancel="handleCancel"
-          @minimize="chatStore.pendingMinimized = true"
         />
-
-        <!-- 最小化的确认浮动条 -->
-        <div v-if="chatStore.pendingCommand && chatStore.pendingMinimized" class="confirm-chip" @click="chatStore.pendingMinimized = false">
-          <span>待确认: {{ chatStore.pendingToolName || 'tool' }}</span>
-          <span class="confirm-chip-cmd">{{ (chatStore.pendingCommandText || chatStore.pendingCommand).slice(0, 40) }}...</span>
-          <span class="confirm-chip-hint">点击恢复</span>
-        </div>
 
         <div class="chat-input">
           <div class="command-hints" v-if="showHints">
@@ -102,7 +95,7 @@ import { executeCommandPlugin } from '@/api/config'
 import { useChatStore } from '@/stores/chat'
 import { useSSE } from '@/composables/useSSE'
 import MessageBubble from '@/components/MessageBubble.vue'
-import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import InlineConfirm from '@/components/InlineConfirm.vue'
 import HistoryPanel from '@/components/HistoryPanel.vue'
 import ContextPanel from '@/components/ContextPanel.vue'
 import TitleBar from '@/components/TitleBar.vue'
@@ -702,22 +695,5 @@ onActivated(() => {
 .stop-button:hover {
   background: #f78989;
 }
-
-/* 确认浮动条 */
-.confirm-chip {
-  margin: 8px 16px; padding: 8px 14px;
-  background: rgba(230, 162, 60, 0.15);
-  border: 1px solid rgba(230, 162, 60, 0.3);
-  border-radius: 8px;
-  display: flex; align-items: center; gap: 10px;
-  cursor: pointer; font-size: 13px;
-  transition: all 0.2s;
-}
-.confirm-chip:hover { background: rgba(230, 162, 60, 0.25); }
-.confirm-chip-cmd {
-  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  color: rgba(255,255,255,0.5); font-family: 'Fira Code', monospace; font-size: 11px;
-}
-.confirm-chip-hint { color: #e6a23c; font-size: 12px; flex-shrink: 0; }
 
 </style>

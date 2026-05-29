@@ -16,6 +16,7 @@ tests/
 code_task_prompt/
 
 examples/
+sessions/
 
 # Electron
 out/
