@@ -36,8 +36,13 @@ class AgentState(Enum):
 class LLMAction(BaseModel):
     """对应 Prompt 中的 action 部分"""
     type: str
-    tool_name: str = ""
+    tool_name: Optional[str] = ""
     parameters: Dict[str, Any] = Field(default_factory=dict)
+
+    def model_post_init(self, __context) -> None:
+        # LLM 可能返回 null，统一转为空字符串
+        if self.tool_name is None:
+            self.tool_name = ""
 
 
 class LLMOutput(BaseModel):
