@@ -1,17 +1,19 @@
 <template>
   <div class="right-sidebar" :class="{ expanded: !!activeTab }">
-    <!-- 内容面板（在图标栏左侧展开） -->
-    <transition name="slide">
-      <div v-if="activeTab" class="sidebar-content" :style="{ width: panelWidth + 'px' }">
-        <!-- 拖拽调整条 -->
-        <div class="resize-handle" @mousedown="onResizeStart"></div>
+    <!-- 内容面板（始终渲染，通过 display 控制显隐，保留组件状态） -->
+    <div v-show="activeTab" class="sidebar-content" :style="{ width: panelWidth + 'px' }">
+      <!-- 拖拽调整条 -->
+      <div class="resize-handle" @mousedown="onResizeStart"></div>
 
-        <!-- 上下文 tab -->
-        <ContextTab v-if="activeTab === 'context'" />
-        <!-- 工具 tab -->
-        <ToolsTab v-else-if="activeTab === 'tools'" @navigate="activeTab = null" />
+      <!-- 上下文 tab -->
+      <div v-show="activeTab === 'context'" class="tab-pane">
+        <ContextTab />
       </div>
-    </transition>
+      <!-- 工具 tab -->
+      <div v-show="activeTab === 'tools'" class="tab-pane">
+        <ToolsTab @navigate="activeTab = null" />
+      </div>
+    </div>
 
     <!-- 图标栏（始终在最右侧） -->
     <div class="sidebar-icons">
@@ -102,6 +104,12 @@ defineExpose({ activeTab })
   height: 100%;
 }
 
+/* tab 内容区 */
+.tab-pane {
+  height: 100%;
+  overflow: hidden;
+}
+
 /* 内容面板 */
 .sidebar-content {
   position: relative;
@@ -130,15 +138,9 @@ defineExpose({ activeTab })
   background: rgba(64, 158, 255, 0.3);
 }
 
-/* 展开/收起动画 */
-.slide-enter-active,
-.slide-leave-active {
+/* 面板显隐过渡 */
+.sidebar-content {
   transition: width 0.2s ease;
-}
-
-.slide-enter-from,
-.slide-leave-to {
-  width: 0 !important;
 }
 
 /* 图标栏 */
