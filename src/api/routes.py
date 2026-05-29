@@ -36,6 +36,8 @@ async def health_check():
 @router.get("/setup/status")
 async def setup_status():
     """检测是否已完成首次配置"""
+    import shutil
+
     env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), ".env")
     has_env = os.path.exists(env_path)
 
@@ -43,19 +45,35 @@ async def setup_status():
     model = os.getenv("LLM_MODEL", "")
     configured = bool(api_key and model)
 
-    # Docker 检测
-    docker_ok = False
-    try:
-        import subprocess
-        subprocess.run(["docker", "info"], capture_output=True, timeout=5, check=True)
-        docker_ok = True
-    except Exception:
-        pass
+    # API Key 来源检测
+    api_key_source = "none"
+    if api_key:
+        api_key_source = "env" if not has_env else "env_file"
+        # 检查 .env 文件中是否有 DASHSCOPE_API_KEY
+        if has_env:
+            with open(env_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            if "DASHSCOPE_API_KEY" in content and api_key:
+                api_key_source = "env_file"
+            elif api_key:
+                api_key_source = "env"
+
+    # Docker 检测：区分未安装 / 已安装未运行 / 正常
+    docker_status = "not_installed"
+    docker_installed = shutil.which("docker") is not None
+    if docker_installed:
+        try:
+            import subprocess
+            subprocess.run(["docker", "info"], capture_output=True, timeout=5, check=True)
+            docker_status = "running"
+        except Exception:
+            docker_status = "not_running"
 
     return {
         "configured": configured,
         "has_env": has_env,
-        "docker_ok": docker_ok,
+        "docker_status": docker_status,
+        "api_key_source": api_key_source,
         "api_key": api_key[:8] + "***" if api_key else "",
         "base_url": os.getenv("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
         "model": model,

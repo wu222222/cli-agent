@@ -4,6 +4,11 @@
     <TitleBar>
       <template #right>
         <div class="status-indicator" :class="{ connected: chatStore.isConnected }"></div>
+        <button class="title-icon-btn" @click="$router.push('/setup')" title="设置">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+          </svg>
+        </button>
       </template>
     </TitleBar>
 
@@ -471,6 +476,26 @@ onActivated(() => {
   background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
   color: rgba(255, 255, 255, 0.9);
   font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+/* 标题栏图标按钮 */
+.title-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.15s;
+}
+
+.title-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .status-indicator {

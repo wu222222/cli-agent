@@ -34,34 +34,4 @@ const router = createRouter({
   routes
 })
 
-// 首次启动引导守卫
-let setupChecked = false
-let isConfigured = false
-
-router.beforeEach(async (to, _from, next) => {
-  // 已检查过且已配置，直接放行
-  if (setupChecked && isConfigured) return next()
-  // 已在 setup 页面，放行
-  if (to.path === '/setup') return next()
-
-  // 未检查过，尝试检测
-  if (!setupChecked) {
-    try {
-      const resp = await fetch('/api/setup/status')
-      const data = await resp.json()
-      setupChecked = true
-      isConfigured = data.configured
-      if (!isConfigured) {
-        return next('/setup')
-      }
-    } catch {
-      // 后端未就绪，放行（让页面自己处理）
-      setupChecked = true
-      isConfigured = true
-    }
-  }
-
-  next()
-})
-
 export default router
