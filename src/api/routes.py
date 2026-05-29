@@ -33,6 +33,79 @@ async def health_check():
     return HealthResponse()
 
 
+@router.get("/setup/status")
+async def setup_status():
+    """检测是否已完成首次配置"""
+    env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), ".env")
+    has_env = os.path.exists(env_path)
+
+    api_key = os.getenv("DASHSCOPE_API_KEY", "")
+    model = os.getenv("LLM_MODEL", "")
+    configured = bool(api_key and model)
+
+    # Docker 检测
+    docker_ok = False
+    try:
+        import subprocess
+        subprocess.run(["docker", "info"], capture_output=True, timeout=5, check=True)
+        docker_ok = True
+    except Exception:
+        pass
+
+    return {
+        "configured": configured,
+        "has_env": has_env,
+        "docker_ok": docker_ok,
+        "api_key": api_key[:8] + "***" if api_key else "",
+        "base_url": os.getenv("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+        "model": model,
+    }
+
+
+@router.post("/setup/save")
+async def setup_save(body: dict):
+    """保存首次配置到 .env 文件"""
+    api_key = body.get("api_key", "").strip()
+    base_url = body.get("base_url", "").strip()
+    model = body.get("model", "").strip()
+
+    if not api_key:
+        return {"success": False, "message": "API Key 不能为空"}
+    if not model:
+        return {"success": False, "message": "模型名称不能为空"}
+
+    env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), ".env")
+
+    lines = []
+    if os.path.exists(env_path):
+        with open(env_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+    # 更新或追加配置
+    def set_env(lines, key, value):
+        for i, line in enumerate(lines):
+            if line.strip().startswith(f"{key}="):
+                lines[i] = f"{key}={value}\n"
+                return lines
+        lines.append(f"{key}={value}\n")
+        return lines
+
+    lines = set_env(lines, "DASHSCOPE_API_KEY", api_key)
+    lines = set_env(lines, "DASHSCOPE_BASE_URL", base_url)
+    lines = set_env(lines, "LLM_MODEL", model)
+
+    with open(env_path, "w", encoding="utf-8") as f:
+        f.writelines(lines)
+
+    # 更新当前进程的环境变量
+    os.environ["DASHSCOPE_API_KEY"] = api_key
+    os.environ["DASHSCOPE_BASE_URL"] = base_url
+    os.environ["LLM_MODEL"] = model
+
+    logger.info(f"配置已保存: model={model}, base_url={base_url}")
+    return {"success": True, "message": "配置已保存，请重启应用使配置生效"}
+
+
 @router.get("/agent/chat/stream")
 async def stream_events(request_id: str = Query(...)):
     queue = get_queue(request_id)
