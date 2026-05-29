@@ -295,7 +295,7 @@ async function handleSend() {
         return
       }
     } else {
-      response = await sendMessage(msg, false, chatStore.currentSessionId)
+      response = await sendMessage(msg, false, chatStore.currentSessionId || undefined)
     }
 
     if (response.request_id) {
@@ -372,7 +372,7 @@ async function handleConfirm(guidance: string = '') {
   chatStore.isThinking = true
 
   try {
-    const response = await api.post('/agent/chat/confirm', { message: guidance, session_id: chatStore.currentSessionId })
+    const response = await api.post('/agent/chat/confirm', { message: guidance, session_id: chatStore.currentSessionId || undefined })
     if (response.data.request_id) {
       connect(response.data.request_id)
     } else {
