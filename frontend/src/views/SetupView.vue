@@ -141,6 +141,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { markConfigured } from '@/router'
 import api from '@/api/agent'
 
 const router = useRouter()
@@ -203,6 +204,7 @@ async function saveConfig() {
       apiMessageType.value = 'ok'
       apiMessage.value = resp.data.message
       status.value.configured = true
+      markConfigured()
     } else {
       apiMessageType.value = 'error'
       apiMessage.value = resp.data.message
@@ -216,6 +218,7 @@ async function saveConfig() {
 }
 
 function skipSetup() {
+  markConfigured()
   router.replace('/')
 }
 

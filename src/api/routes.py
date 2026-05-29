@@ -44,17 +44,23 @@ async def setup_status():
     api_key = os.getenv("DASHSCOPE_API_KEY", "")
     base_url = os.getenv("DASHSCOPE_BASE_URL", "")
     model = os.getenv("LLM_MODEL", "")
-    configured = bool(api_key and model and base_url and has_env)
-
     # 配置来源检测
-    if configured:
+    all_filled = bool(api_key and model and base_url)
+    if all_filled and has_env:
         config_source = "env_file"
+        configured = True
+    elif all_filled and not has_env:
+        config_source = "env"
+        configured = True
     elif has_env and (api_key or model or base_url):
         config_source = "partial"
+        configured = False
     elif not has_env and (api_key or model or base_url):
         config_source = "env"
+        configured = False
     else:
         config_source = "none"
+        configured = False
 
     # Docker 检测：区分未安装 / 已安装未运行 / 正常
     docker_status = "not_installed"

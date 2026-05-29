@@ -38,6 +38,11 @@ const router = createRouter({
 let setupChecked = false
 let isConfigured = false
 
+export function markConfigured() {
+  isConfigured = true
+  setupChecked = true
+}
+
 router.beforeEach(async (to, _from, next) => {
   if (to.path === '/setup') return next()
   if (setupChecked && isConfigured) return next()
