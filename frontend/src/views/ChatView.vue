@@ -574,9 +574,12 @@ onActivated(() => {
 }
 
 .chat-input {
-  padding: 15px 20px;
+  padding: 12px 20px;
   background: transparent;
   position: relative;
+  max-width: 720px;
+  margin: 0 auto;
+  width: 100%;
 }
 
 .command-hints {

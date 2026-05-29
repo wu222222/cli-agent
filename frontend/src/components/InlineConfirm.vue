@@ -89,6 +89,9 @@ function handleReject() {
 .inline-confirm-wrapper {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(20, 21, 28, 0.95);
+  max-width: 720px;
+  margin: 0 auto;
+  width: 100%;
 }
 
 /* 收缩/展开箭头 */

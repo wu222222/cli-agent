@@ -139,10 +139,11 @@ onBeforeUnmount(() => {
   document.removeEventListener('mouseup', onResizeEnd)
 })
 
-// 切换会话时自动刷新上下文（如果面板已展开）
+// 切换会话时：立即清空旧数据，面板展开则自动刷新
 watch(() => chatStore.currentSessionId, () => {
+  expandedMsgs.value.clear()
+  ctxStatus.value = { step: 0, policy: null, messages: [], summary_count: 0, total_count: 0 }
   if (!isCollapsed.value) {
-    expandedMsgs.value.clear()
     fetchContextStatus()
   }
 })
