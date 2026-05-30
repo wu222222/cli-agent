@@ -115,12 +115,15 @@ cd frontend && npm run dev       # 前端 http://localhost:5173
 
 ### 设置页（SetupView）
 - **API 配置 tab**：环境检测（Docker / .env / API 状态）+ 配置表单
-- **插件配置 tab**：plugins.yaml YAML 编辑器（等宽字体、格式验证）
+- **插件配置 tab**：已安装插件列表 + 一键删除 + ZIP 导入 + YAML 编辑器
+- **插件市场 tab**：从 GitHub 浏览和安装社区插件
 - 标题栏齿轮图标随时进入，首次启动自动弹出
 
 ![设置界面](docs/demonstration_picture/前端设置界面.png)
 
 ![插件配置](docs/demonstration_picture/插件配置.png)
+
+![插件市场](docs/demonstration_picture/插件市场.png)
 
 ### 命令确认（InlineConfirm）
 - 内嵌在聊天流中（非模态弹窗）
@@ -142,6 +145,39 @@ cd frontend && npm run dev       # 前端 http://localhost:5173
 | 超时保护 | 默认 30s + streaming 外层 300s |
 | 权限控制 | 默认 `privileged: false` |
 | 上下文衰减 | 消息按年龄截断/遗忘，user/error 永不丢失 |
+
+---
+
+## 插件系统
+
+### 核心插件（内置）
+
+| 插件 | 类型 | 说明 |
+|------|------|------|
+| alpine_shell | exec | Alpine Linux 轻量级 shell 环境 |
+| grep_knowledge | exec | 知识库搜索 |
+| curator | command | `/summary` 触发知识库管理 |
+| context_compress | local | 上下文压缩（LLM 摘要） |
+| call_judge | local | JudgeAgent 评审结果 |
+
+### 插件市场
+
+从 [插件市场](https://wu222222.github.io/cli-agent-plugins/) 浏览和安装社区插件：
+
+| 插件 | 类型 | 说明 |
+|------|------|------|
+| [kali](https://github.com/wu222222/cli-agent-plugins/tree/main/plugins/kali) | exec | Kali Linux 渗透测试环境 |
+| [ctf_lab](https://github.com/wu222222/cli-agent-plugins/tree/main/plugins/ctf_lab) | compose | CTF 安全靶场 (3 个 flag) |
+| [crypto_tls](https://github.com/wu222222/cli-agent-plugins/tree/main/plugins/crypto_tls) | compose | SEED Labs TLS 实验 |
+| [search](https://github.com/wu222222/cli-agent-plugins/tree/main/plugins/search) | exec | DuckDuckGo 互联网搜索 |
+| [cpp_python_dev](https://github.com/wu222222/cli-agent-plugins/tree/main/plugins/cpp_python_dev) | exec | C++/Python 开发环境 |
+
+**安装方式**：
+- 前端一键安装：设置 → 插件市场 → 点击"安装"
+- ZIP 导入：下载插件 ZIP → 设置 → 插件配置 → 导入插件
+- 手动安装：将插件目录放入 `config/plugins/`，重启服务
+
+更多插件开发信息见 [plugin-guide.md](plugin-guide.md)。
 
 ---
 
@@ -201,7 +237,8 @@ cli-agent/
 │       ├── api/                  # agent / config
 │       └── router/               # 路由 + 引导守卫
 ├── config/
-│   ├── plugins.yaml              # 插件配置
+│   ├── plugins.yaml              # 核心插件配置
+│   ├── plugins/                  # 额外插件目录（.gitignore，从市场安装）
 │   └── context_policy.yaml       # 上下文策略
 ├── sessions/                     # Session 持久化
 ├── logs/                         # 日志文件（自动轮转）
