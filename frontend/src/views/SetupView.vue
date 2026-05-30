@@ -471,6 +471,9 @@ async function savePluginConfig() {
 
 .setup-form {
   text-align: left;
+  max-width: 440px;
+  width: 100%;
+  margin: 0 auto;
 }
 
 .form-group {
@@ -560,6 +563,8 @@ async function savePluginConfig() {
   flex-direction: column;
   flex: 1;
   width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
 }
 
 .yaml-toolbar {
