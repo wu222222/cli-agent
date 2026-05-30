@@ -112,11 +112,11 @@
           </button>
 
           <p v-if="apiMessage" class="setup-message" :class="apiMessageType">{{ apiMessage }}</p>
-        </div>
 
-        <button class="skip-btn" @click="skipSetup">
-          {{ status.configured ? '进入主界面' : '跳过，直接进入' }}
-        </button>
+          <button class="skip-btn" @click="skipSetup">
+            {{ status.configured ? '进入主界面' : '跳过，直接进入' }}
+          </button>
+        </div>
       </div>
 
       <!-- 插件配置 Tab -->
@@ -550,6 +550,7 @@ async function savePluginConfig() {
   font-size: 13px;
   cursor: pointer;
   transition: all 0.15s;
+
 }
 
 .skip-btn:hover {
@@ -563,7 +564,7 @@ async function savePluginConfig() {
   flex-direction: column;
   flex: 1;
   width: 100%;
-  max-width: 560px;
+  max-width: 860px;
   margin: 0 auto;
 }
 
