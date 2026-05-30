@@ -519,10 +519,12 @@ onActivated(() => {
   overflow-y: auto;
   padding: 20px;
   padding-right: 12px;
-  padding-bottom: 80px; /* 为输入框留出空间，避免遮挡消息 */
   display: flex;
   flex-direction: column;
   gap: 10px;
+  /* 底部渐变遮罩：消息自然消失在输入框上方 */
+  mask-image: linear-gradient(to bottom, black calc(100% - 60px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 60px), transparent 100%);
 }
 
 /* 自定义滚动条 */
