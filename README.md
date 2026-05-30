@@ -1,93 +1,38 @@
-# Safe-CLI-Agent 🛡️
+# Safe-CLI-Agent
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Docker Support](https://img.shields.io/badge/Docker-Supported-blue.svg)](https://www.docker.com/)
-[![Desktop](https://img.shields.io/badge/Desktop-Electron-blueviolet.svg)](#-桌面端模式)
+[![Desktop](https://img.shields.io/badge/Desktop-Electron-blueviolet.svg)](#桌面端模式)
 
-**Safe-CLI-Agent** 是一个基于多智能体（Multi-Agent）架构的智能化命令行助手。它不仅能理解你的自然语言指令并转化为 Shell 操作，更通过 **Docker 容器化沙盒** 与 **人机交互拦截（HITL）** 机制，确保 AI 在执行系统级任务时的绝对安全。
-
-> "让 AI 拥有操作系统的能力，同时将其关进安全的笼子里。"
-
-![主界面](docs/demonstration_picture/主界面.png)
+**Safe-CLI-Agent** 是一个基于多智能体架构的智能化命令行助手，以 Electron 桌面端交付。通过 Docker 容器化沙盒与人机交互拦截机制，确保 AI 执行系统级任务时的安全性。
 
 ---
 
-## ✨ 核心特性
+## 核心特性
 
-### 🤖 多智能体协作
-- **WorkerAgent** — 任务执行：调用工具完成用户指令
-- **JudgeAgent** — 结果评审：验证执行结果的合理性
-- **CuratorAgent** — 知识管理：整理经验教训到知识库
+**多智能体协作**：WorkerAgent 执行任务 + JudgeAgent 评审结果 + CuratorAgent 管理知识库
 
-### 🔒 安全沙盒
-- **Docker 容器化**: 每个工具运行在独立容器中，网络隔离
-- **HITL 人机确认**: 高危命令弹出内嵌确认面板，支持拒绝 + 引导
-- **可配容器参数**: `network_mode`、`privileged`、`timeout_seconds` 按插件独立配置
+**安全沙盒**：Docker 容器隔离，按工具配置网络/权限/超时，高危命令内嵌确认面板
 
-### 🧠 智能记忆
-- **上下文衰减**: 工具结果按时老化（完整→截断→摘要→遗忘）
-- **自动压缩**: 每 6 步触发 LLM 摘要，保持上下文精简
-- **会话持久化**: 对话历史自动保存到本地文件系统
+**智能记忆**：上下文衰减（完整 -> 截断 -> 摘要 -> 遗忘），每 6 步自动压缩
 
-### 💭 流式交互
-- **实时思考**: SSE 推送 Agent 推理过程
-- **内嵌确认**: 命令确认内嵌在聊天流中，无缝体验
-- **长输出折叠**: 工具结果 >10 行自动折叠，JSON 自动格式化
+**流式交互**：SSE 实时推送思考过程、工具执行结果、确认请求
 
-### 🖥️ 桌面端支持
-- **一键启动**: 双击 `dev.bat` 自动启动后端 + Electron 窗口
-- **系统托盘**: 最小化到托盘，后台持续运行
-- **自定义标题栏**: 无边框窗口，深色主题
-- **首次启动引导**: 自动检测 Docker、配置 API Key
+**桌面端体验**：自定义无边框窗口、左右侧栏、首次启动引导、Session 持久化
 
 ---
 
-## 🏗️ 系统架构
-
-```
-┌──────────────────────────────────────────────────┐
-│           Electron Desktop App (可选)             │
-│  TitleBar / Tray / Notifications                 │
-└──────────────────┬───────────────────────────────┘
-                   │ HTTP + SSE
-┌──────────────────▼───────────────────────────────┐
-│              Frontend (Vue 3 + TypeScript)       │
-│  ChatView / ToolsView / HistoryPanel / Settings  │
-│  💭 thought  ⚙ tool_result  ⚠ inline confirm   │
-└──────────────────┬───────────────────────────────┘
-                   │ HTTP + SSE
-┌──────────────────▼───────────────────────────────┐
-│            API Layer (FastAPI)                    │
-│  routes.py / services.py / session_manager.py    │
-└──────────────────┬───────────────────────────────┘
-                   │
-┌──────────────────▼───────────────────────────────┐
-│           Agent Layer (FSM)                       │
-│  WorkerAgent / JudgeAgent / CuratorAgent          │
-│  AgentRegistry + AGENT_POLICIES                   │
-│  ContextManager (decay/compress)                  │
-└──────────────────┬───────────────────────────────┘
-                   │
-┌──────────────────▼───────────────────────────────┐
-│         Plugin Container Layer                    │
-│  ExecContainerPlugin (alpine, search...)          │
-│  PluginContainerManager (lifecycle)               │
-└──────────────────────────────────────────────────┘
-```
-
----
-
-## 🚀 快速开始
+## 快速开始
 
 ### 前置条件
 
-- Python 3.10+
-- Node.js 18+（桌面端构建）
-- Docker Engine（确保 Docker 进程已启动）
-- LLM API Key（支持国内主流模型）
+- Python 3.10+（推荐 conda 管理）
+- Node.js 18+
+- Docker Desktop（确保已启动）
+- 兼容 OpenAI 格式的 LLM API Key
 
-### 方式一：桌面端模式（推荐）
+### 桌面端模式（推荐）
 
 ```bash
 # 1. 获取代码
@@ -99,150 +44,158 @@ conda create -n safe-cli-agent python=3.10
 conda activate safe-cli-agent
 pip install -r requirements.txt
 
-# 3. 配置密钥
-cp .env.example .env
-# 编辑 .env 填写 API_KEY 和 BASE_URL
-
-# 4. 安装前端依赖
+# 3. 前端依赖
 cd frontend && npm install && cd ..
 
-# 5. 一键启动
-.\dev.bat
+# 4. 启动（首次自动构建，后续秒开）
+.\start.bat
 ```
 
-### 方式二：浏览器模式
+首次启动会进入引导页，配置 API Key / Base URL / 模型名称。
+
+### 启动脚本
+
+| 脚本 | 用途 |
+|------|------|
+| `start.bat` | 智能启动（dist 存在则跳过构建，秒开） |
+| `build.bat` | 强制重新构建前端并启动 |
+| `dev.bat` | 等同于 start.bat（向后兼容） |
+
+### 浏览器模式
 
 ```bash
-# 启动后端
-python -m src.api.main
-
-# 启动前端
-cd frontend && npm run dev
-
-# 浏览器访问 http://localhost:5173
+python -m src.api.main          # 后端 http://localhost:8000
+cd frontend && npm run dev       # 前端 http://localhost:5173
 ```
 
 ---
 
-## 🖥️ 桌面端功能
+## 桌面端功能
 
-![主界面](docs/demonstration_picture/主界面.png)
+### 界面布局
 
-### 自定义标题栏
-- 深色主题无边框窗口
-- 最小化 / 最大化 / 关闭按钮
-- 系统托盘常驻（关闭窗口不退出）
+```
+┌─ TitleBar（标题栏 + 窗口控制）──────────────────────────┐
+├─ HistoryPanel ─┬─ ChatMain ──────────────┬─ RightSidebar ┤
+│  对话记录列表   │  消息气泡 + 确认面板      │  上下文 tab   │
+│  双击重命名     │  悬浮输入框              │  工具 tab     │
+│  折叠/展开      │  命令提示                │  图标栏常驻   │
+└────────────────┴────────────────────────┴───────────────┘
+```
 
-### 历史对话管理
-- 左侧可折叠历史面板
-- 新建对话 / 删除对话（带确认）
-- 恢复对话自动匹配插件配置
-- 每个会话显示启用的工具列表
+### 标题栏
+- 自定义无边框窗口，深色主题
+- 左侧：应用图标 + 标题
+- 右侧：连接状态指示 + 设置入口 + 窗口控制
 
-### 内嵌命令确认
-- 确认面板内嵌在聊天流中（非模态弹窗）
-- 收缩/展开箭头控制显示
+### 左侧栏（HistoryPanel）
+- 对话列表，双击重命名
+- 显示每个会话的工具标签和消息条数
+- AI 运行时禁用会话切换
+- 折叠时只显示展开箭头
+
+### 右侧栏（RightSidebar）
+- 图标栏始终贴右，点击展开/收起
+- **上下文 tab**：消息列表、衰减阶段可视化、摘要统计、一键清空
+- **工具 tab**：简约版工具勾选列表 + 保存，支持跳转完整设置页
+- 跟随 session 切换自动刷新
+- 支持拖拽调整面板宽度
+
+### 设置页（SetupView）
+- **API 配置 tab**：环境检测（Docker / .env / API 状态）+ 配置表单
+- **插件配置 tab**：plugins.yaml YAML 编辑器（等宽字体、格式验证）
+- 标题栏齿轮图标随时进入，首次启动自动弹出
+
+### 命令确认（InlineConfirm）
+- 内嵌在聊天流中（非模态弹窗）
 - 显示思考过程 + 即将执行的命令
-- 支持拒绝 + 引导 Agent 重新思考
-
-![命令确认](docs/demonstration_picture/命令确认页面.png)
-
-### 首次启动引导
-- Docker 三级检测（安装 → 运行 → 权限）
-- API Key 配置（手动输入或读取环境变量）
-- 插件配置 YAML 编辑器
-
-![设置界面](docs/demonstration_picture/前端设置界面.png)
-
-![插件配置](docs/demonstration_picture/插件配置.png)
+- 支持拒绝 + 输入引导信息让 Agent 重新思考
+- 可收缩/展开
 
 ---
 
-## 🛡️ 安全策略
+## 安全策略
 
 | 策略 | 说明 |
 |------|------|
 | 网络隔离 | 默认 `network_mode: "none"`，联网插件显式设 `"bridge"` |
-| 路径受限 | `mount_dirs` 限制挂载目录，无法触碰系统文件 |
+| 路径受限 | `mount_dirs` 限制挂载目录 |
 | 按工具确认 | 每个工具独立配置 `requires_confirmation` |
-| 超时保护 | 默认 30s，可按插件配置 `timeout_seconds` |
-| 权限控制 | 默认 `privileged: false`，需要时显式开启 |
-| 上下文衰减 | 消息按年龄自动截断/遗忘，user/error 永不丢失 |
+| 超时保护 | 默认 30s + streaming 外层 300s |
+| 权限控制 | 默认 `privileged: false` |
+| 上下文衰减 | 消息按年龄截断/遗忘，user/error 永不丢失 |
 
 ---
 
-## 🛠️ 技术栈
+## 技术栈
 
-| 模块 | 技术实现 |
-|------|----------|
-| 桌面框架 | Electron + TypeScript + electron-vite |
+| 模块 | 技术 |
+|------|------|
+| 桌面框架 | Electron 42 + electron-vite |
 | 前端框架 | Vue 3 + TypeScript + Vite |
 | UI 组件库 | Element Plus |
-| API 服务 | FastAPI + Uvicorn |
-| LLM 交互 | 自定义异步 LLMClient |
+| 后端框架 | FastAPI + Uvicorn |
+| LLM SDK | OpenAI 兼容（支持任意供应商） |
 | 容器管理 | Docker SDK for Python |
-| 工具体系 | LocalTool / ExecContainerPlugin / NetworkContainerPlugin |
-| 状态管理 | Pythonic FSM + Pinia |
 | 会话存储 | JSON 文件持久化（sessions/） |
-| 流式通信 | SSE — thought / tool_start / tool_result / confirm / final |
-| 插件配置 | YAML 动态加载（config/plugins.yaml） |
+| 日志系统 | RotatingFileHandler + TTY 检测 |
+| 流式通信 | SSE（thought / tool_start / tool_result / confirm / final） |
 
 ---
 
-## 📁 项目结构
+## 发布打包
+
+```bash
+# 构建 Windows 安装包（.exe）
+npm run build:win
+
+# 产物位于 release/ 目录
+```
+
+打包后的应用需要用户预装：
+- Python 3.10+（conda 环境 `safe-cli-agent`）
+- Docker Desktop
+
+---
+
+## 项目结构
 
 ```
 cli-agent/
-├── electron/                   # Electron 桌面端（TypeScript）
+├── electron/                     # Electron 主进程
 │   └── src/
-│       ├── main.ts             # 主入口：窗口管理 + Python 生命周期
-│       ├── python-manager.ts   # Python 子进程管理
-│       ├── preload.ts          # IPC 桥接
-│       ├── tray.ts             # 系统托盘
-│       └── notifications.ts    # 原生通知
-├── src/                        # Python 后端
-│   ├── api/
-│   │   ├── main.py             # FastAPI 入口
-│   │   ├── routes.py           # 路由（含 session API）
-│   │   ├── services.py         # 业务逻辑
-│   │   ├── session_manager.py  # 会话持久化
-│   │   └── streaming.py        # SSE 流式 Agent
-│   ├── agent/                  # Agent 核心（FSM + 工具体系）
-│   ├── executor/               # Docker 执行器
-│   └── llm/                    # LLM 客户端
+│       ├── main.ts               # 窗口管理 + 生命周期
+│       ├── python-manager.ts     # Python 子进程管理
+│       ├── preload.ts            # IPC 桥接
+│       └── tray.ts               # 系统托盘
+├── src/                          # Python 后端
+│   ├── agent/                    # Agent 核心（FSM + 工具体系）
+│   ├── api/                      # FastAPI（routes + services + session）
+│   ├── executor/                 # Docker 执行器
+│   ├── llm/                      # LLM 客户端
+│   └── logger/                   # 日志系统
+├── frontend/                     # Vue 3 前端
+│   └── src/
+│       ├── components/           # TitleBar / HistoryPanel / RightSidebar / InlineConfirm
+│       ├── views/                # ChatView / SetupView / ToolsView
+│       ├── composables/          # useSSE
+│       ├── stores/               # chat
+│       ├── api/                  # agent / config
+│       └── router/               # 路由 + 引导守卫
 ├── config/
-│   ├── plugins.yaml            # 插件配置（8 个内置插件）
-│   └── context_policy.yaml     # 上下文策略
-├── frontend/                   # Vue 3 前端
-│   └── src/
-│       ├── components/         # 组件（InlineConfirm / HistoryPanel / TitleBar）
-│       ├── views/              # 页面（ChatView / ToolsView / SettingsView）
-│       ├── composables/        # 组合式函数（useSSE）
-│       ├── stores/             # 状态管理（chat / plugin）
-│       └── api/                # API 客户端
-├── sessions/                   # 会话持久化存储（JSON）
-├── build/                      # Electron 打包资源（图标等）
-├── package.json                # Electron 项目配置
-├── electron-builder.yml        # 打包配置
-└── dev.bat                     # 一键启动脚本
+│   ├── plugins.yaml              # 插件配置
+│   └── context_policy.yaml       # 上下文策略
+├── sessions/                     # Session 持久化
+├── logs/                         # 日志文件（自动轮转）
+├── start.bat                     # 智能启动
+├── build.bat                     # 强制构建
+├── electron-builder.yml          # 打包配置
+├── requirements.txt              # Python 依赖
+└── package.json                  # Electron 项目配置
 ```
 
 ---
 
-## 🔬 网络安全实验
+## 开源协议
 
-本项目包含网安教学实验，通过 compose 插件一键启动：
-
-| 实验 | 说明 |
-|------|------|
-| **Crypto_TLS** | TLS 握手编程、证书管理、MITM 中间人攻击 |
-| **ctf_lab** | CTF 渗透测试靶场（3 flag） |
-| **kali** | Kali Linux + 常用渗透工具 |
-
-详见 [LABS.md](LABS.md)
-
----
-
-## 📄 开源协议
-
-本项目采用 MIT License 协议。
+MIT License

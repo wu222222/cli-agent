@@ -14,12 +14,13 @@ files:
   - "knowledge_base/**/*"   # 知识库
   - "workspace/**/*"        # 工作目录
 
-# Python 后端 — 用 extraResources 携带 PyInstaller 打包产物
-extraResources:
-  - from: "python-dist/"
-    to: "python"
-    filter:
-      - "**/*"
+# asar 排除：Python 源码必须在磁盘上（Python 无法从 asar 内执行）
+asarUnpack:
+  - "src/**/*"
+  - "config/**/*"
+
+# Python 后端 — 使用系统 Python（用户需预装 Python 3.10+ 和 Docker）
+# 后续可改为 extraResources + PyInstaller 打包独立 Python
 
 # ── Windows ──
 win:

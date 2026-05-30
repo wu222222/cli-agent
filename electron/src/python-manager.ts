@@ -58,15 +58,11 @@ export class PythonManager {
    *   3. 系统 PATH 中的 python
    */
   private resolvePython(): string {
-    if (app.isPackaged) {
-      return process.platform === 'win32'
-        ? path.join(process.resourcesPath, 'python', 'python.exe')
-        : path.join(process.resourcesPath, 'python', 'bin', 'python3')
-    }
-
+    // 优先 conda 环境
     const condaPython = resolveCondaPython()
     if (condaPython) return condaPython
 
+    // 系统 PATH
     return process.platform === 'win32' ? 'python' : 'python3'
   }
 
@@ -113,7 +109,10 @@ export class PythonManager {
 
   async start(): Promise<void> {
     const python = this.resolvePython()
-    const projectRoot = path.join(__dirname, '../..')
+    // 打包模式：Python 源码在 app.asar.unpack 中（asar 无法直接执行 Python）
+    const projectRoot = app.isPackaged
+      ? path.join(process.resourcesPath, 'app.asar.unpack')
+      : path.join(__dirname, '../..')
 
     // Windows: 强制控制台使用 UTF-8 编码（解决中文乱码）
     if (process.platform === 'win32') {
