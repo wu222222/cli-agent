@@ -16,6 +16,9 @@
       <div class="setup-header">
         <div class="setup-logo">🛡</div>
         <h1 class="setup-title">Safe-CLI-Agent</h1>
+        <button class="restart-btn" @click="handleRestart" :disabled="restarting" :title="restarting ? '重启中...' : '重启后端'">
+          <svg :class="{ spinning: restarting }" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+        </button>
       </div>
 
       <!-- Tab 切换 -->
@@ -225,6 +228,7 @@ import TitleBar from '@/components/TitleBar.vue'
 const router = useRouter()
 const activeTab = ref<'api' | 'plugins' | 'market'>('api')
 const loading = ref(true)
+const restarting = ref(false)
 // 首次启动 = 未配置 = standalone（显示关闭按钮）；已配置 = 从设置进入（显示返回按钮）
 const isStandalone = ref(true)
 
@@ -300,6 +304,31 @@ async function saveConfig() {
   } finally {
     saving.value = false
   }
+}
+
+async function handleRestart() {
+  if (!confirm('确定要重启后端服务吗？')) return
+  restarting.value = true
+  try {
+    await api.post('/system/restart')
+  } catch {}
+  // 等待后端重启完成
+  let retries = 0
+  const check = setInterval(async () => {
+    retries++
+    try {
+      await api.get('/setup/status')
+      clearInterval(check)
+      restarting.value = false
+      window.location.reload()
+    } catch {
+      if (retries > 30) {
+        clearInterval(check)
+        restarting.value = false
+        alert('重启超时，请手动重启后端')
+      }
+    }
+  }, 1000)
 }
 
 function skipSetup() {
@@ -548,6 +577,40 @@ async function savePluginConfig() {
   font-size: 20px;
   font-weight: 700;
   color: #fff;
+}
+
+.restart-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  transition: all 0.15s;
+  margin-left: 8px;
+}
+
+.restart-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.restart-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
 }
 
 /* Tab 栏 */

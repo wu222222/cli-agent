@@ -320,6 +320,22 @@ async def import_plugin(file: UploadFile = File(...)):
         return {"success": False, "message": f"导入失败: {str(e)}"}
 
 
+# === 系统 ===
+
+@router.post("/system/restart")
+async def system_restart():
+    """请求重启后端服务"""
+    import threading
+    import time
+
+    def delayed_exit():
+        time.sleep(0.5)
+        os._exit(0)
+
+    threading.Thread(target=delayed_exit, daemon=True).start()
+    return {"success": True, "message": "正在重启..."}
+
+
 # === 插件市场 ===
 
 MARKETPLACE_REPO = "wu222222/cli-agent-plugins"
