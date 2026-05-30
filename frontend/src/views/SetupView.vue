@@ -36,43 +36,42 @@
       <div v-show="activeTab === 'api'" class="tab-content">
         <!-- 环境检测 -->
         <div class="setup-checks">
-          <div class="check-item" :class="dockerClass">
-            <span class="check-icon">{{ dockerIcon }}</span>
-            <span>{{ dockerLabel }}</span>
+          <div class="check-item" :class="loading ? 'pending' : dockerClass">
+            <span class="check-icon">{{ loading ? '…' : dockerIcon }}</span>
+            <span>{{ loading ? '检测中...' : dockerLabel }}</span>
           </div>
-          <div class="check-item" :class="status.has_env ? 'ok' : 'fail'">
-            <span class="check-icon">{{ status.has_env ? '✓' : '✕' }}</span>
-            <span>.env {{ status.has_env ? '已创建' : '未创建' }}</span>
+          <div class="check-item" :class="loading ? 'pending' : (status.has_env ? 'ok' : 'fail')">
+            <span class="check-icon">{{ loading ? '…' : (status.has_env ? '✓' : '✕') }}</span>
+            <span>{{ loading ? '检测中...' : `.env ${status.has_env ? '已创建' : '未创建'}` }}</span>
           </div>
-          <div class="check-item" :class="status.configured ? 'ok' : 'pending'">
-            <span class="check-icon">{{ status.configured ? '✓' : '○' }}</span>
-            <span>API {{ status.configured ? '已配置' : '待配置' }}</span>
+          <div class="check-item" :class="loading ? 'pending' : (status.configured ? 'ok' : 'pending')">
+            <span class="check-icon">{{ loading ? '…' : (status.configured ? '✓' : '○') }}</span>
+            <span>{{ loading ? '检测中...' : `API ${status.configured ? '已配置' : '待配置'}` }}</span>
           </div>
-        </div>
-
-        <!-- Docker 提示 -->
-        <div v-if="status.docker_status === 'not_installed'" class="setup-warning">
-          <p>Docker 未安装。容器插件功能需要 Docker 支持。</p>
-          <a href="https://www.docker.com/products/docker-desktop/" target="_blank" class="docker-link">
-            下载 Docker Desktop →
-          </a>
-        </div>
-        <div v-else-if="status.docker_status === 'not_running'" class="setup-warning warn-yellow">
-          <p>Docker 已安装但未启动。请打开 Docker Desktop 启动服务。</p>
-        </div>
-
-        <!-- 环境变量来源提示 -->
-        <div v-if="status.config_source === 'env'" class="setup-info">
-          <p>检测到系统环境变量已配置，无需重复填写。</p>
-        </div>
-        <div v-else-if="status.config_source === 'partial'" class="setup-warning warn-yellow">
-          <p>检测到部分配置，请补全以下必填项。</p>
         </div>
 
         <!-- 配置表单 -->
         <div class="setup-form">
+          <!-- Docker 提示 -->
+          <div v-if="!loading && status.docker_status === 'not_installed'" class="setup-warning">
+            <p>Docker 未安装。容器插件功能需要 Docker 支持。</p>
+            <a href="https://www.docker.com/products/docker-desktop/" target="_blank" class="docker-link">
+              下载 Docker Desktop →
+            </a>
+          </div>
+          <div v-else-if="!loading && status.docker_status === 'not_running'" class="setup-warning warn-yellow">
+            <p>Docker 已安装但未启动。请打开 Docker Desktop 启动服务。</p>
+          </div>
+
+          <!-- 环境变量来源提示 -->
+          <div v-if="!loading && status.config_source === 'env'" class="setup-info">
+            <p>检测到系统环境变量已配置，无需重复填写。</p>
+          </div>
+          <div v-else-if="!loading && status.config_source === 'partial'" class="setup-warning warn-yellow">
+            <p>检测到部分配置，请补全以下必填项。</p>
+          </div>
           <div class="form-group">
-            <label>API Key <span v-if="status.config_source !== 'env'" class="required">*</span></label>
+            <label>API Key</label>
             <input
               v-model="form.api_key"
               type="password"
@@ -81,7 +80,7 @@
             />
             <span class="form-hint">
               <template v-if="status.config_source === 'env'">已从系统环境变量读取（留空则保留）</template>
-              <template v-else>兼容 OpenAI 格式的 API Key</template>
+              <template v-else>兼容 OpenAI 格式的 API Key（可选，留空则使用环境变量）</template>
             </span>
           </div>
 
@@ -107,7 +106,7 @@
             <span class="form-hint">如 gpt-4o、claude-sonnet-4-6、deepseek-chat 等</span>
           </div>
 
-          <button class="setup-btn" @click="saveConfig" :disabled="saving || (!form.api_key && status.config_source !== 'env')">
+          <button class="setup-btn" @click="saveConfig" :disabled="saving">
             {{ saving ? '保存中...' : '保存配置' }}
           </button>
 
@@ -156,6 +155,7 @@ import TitleBar from '@/components/TitleBar.vue'
 
 const router = useRouter()
 const activeTab = ref<'api' | 'plugins'>('api')
+const loading = ref(true)
 // 首次启动 = 未配置 = standalone（显示关闭按钮）；已配置 = 从设置进入（显示返回按钮）
 const isStandalone = ref(true)
 
@@ -206,7 +206,9 @@ onMounted(async () => {
     form.value.model = resp.data.model || ''
     // 已配置 = 从设置按钮进入，非首次启动
     isStandalone.value = !resp.data.configured
-  } catch {}
+  } catch {} finally {
+    loading.value = false
+  }
 })
 
 async function saveConfig() {
@@ -432,7 +434,7 @@ async function savePluginConfig() {
 .check-icon { font-weight: bold; }
 
 .setup-warning {
-  margin-bottom: 14px;
+  margin-bottom: 12px;
   padding: 10px 12px;
   background: rgba(245, 108, 108, 0.1);
   border: 1px solid rgba(245, 108, 108, 0.2);
@@ -458,7 +460,7 @@ async function savePluginConfig() {
 .docker-link:hover { text-decoration: underline; }
 
 .setup-info {
-  margin-bottom: 14px;
+  margin-bottom: 12px;
   padding: 8px 12px;
   background: rgba(103, 194, 58, 0.08);
   border: 1px solid rgba(103, 194, 58, 0.15);

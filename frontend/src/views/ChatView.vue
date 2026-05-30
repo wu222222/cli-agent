@@ -628,7 +628,7 @@ onActivated(() => {
 .input-wrapper {
   display: flex;
   gap: 10px;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(22, 33, 62, 0.85);
   border-radius: 14px;
   padding: 10px 14px;
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -637,7 +637,7 @@ onActivated(() => {
 }
 
 .input-wrapper:focus-within {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(22, 33, 62, 0.95);
   border-color: rgba(64, 158, 255, 0.4);
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(64, 158, 255, 0.15);
 }
@@ -654,6 +654,23 @@ onActivated(() => {
   max-height: 150px;
   padding: 2px 0;
   outline: none;
+}
+
+.input-wrapper textarea::-webkit-scrollbar {
+  width: 4px;
+}
+
+.input-wrapper textarea::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.input-wrapper textarea::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+}
+
+.input-wrapper textarea::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
 }
 
 .input-wrapper textarea::placeholder {
