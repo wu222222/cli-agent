@@ -7,6 +7,9 @@ import shlex
 import yaml
 from typing import List, Dict, Any
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
