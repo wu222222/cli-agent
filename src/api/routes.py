@@ -320,6 +320,89 @@ async def import_plugin(file: UploadFile = File(...)):
         return {"success": False, "message": f"导入失败: {str(e)}"}
 
 
+# === 插件市场 ===
+
+MARKETPLACE_REPO = "wu222222/cli-agent-plugins"
+MARKETPLACE_RAW = f"https://raw.githubusercontent.com/{MARKETPLACE_REPO}/main"
+
+
+@router.get("/plugins/marketplace")
+async def list_marketplace_plugins():
+    """从 GitHub 获取插件市场列表"""
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(f"{MARKETPLACE_RAW}/registry.json")
+            resp.raise_for_status()
+            data = resp.json()
+            # 附带每个插件的下载 URL
+            for p in data.get("plugins", []):
+                p["download_url"] = f"https://github.com/{MARKETPLACE_REPO}/archive/refs/heads/main.zip"
+                p["detail_url"] = f"https://github.com/{MARKETPLACE_REPO}/tree/main/{p.get('repo_path', '')}"
+            return data.get("plugins", [])
+    except Exception as e:
+        logger.error(f"获取插件市场数据失败: {e}")
+        return []
+
+
+@router.post("/plugins/marketplace/install")
+async def install_from_marketplace(body: dict):
+    """从插件市场安装指定插件"""
+    import httpx, zipfile, io, shutil, tempfile
+
+    plugin_name = body.get("name", "")
+    repo_path = body.get("repo_path", "")
+    if not plugin_name or not repo_path:
+        return {"success": False, "message": "缺少插件名称或路径"}
+
+    config_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "config")
+    plugins_dir = os.path.join(config_dir, "plugins")
+    os.makedirs(plugins_dir, exist_ok=True)
+    target_dir = os.path.join(plugins_dir, plugin_name)
+
+    try:
+        # 下载整个仓库 ZIP
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(f"https://github.com/{MARKETPLACE_REPO}/archive/refs/heads/main.zip")
+            resp.raise_for_status()
+
+        with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+            # 找到插件目录在 ZIP 中的路径（archive 根目录是 cli-agent-plugins-main/）
+            prefix = f"cli-agent-plugins-main/{repo_path}/"
+            plugin_files = [f for f in zf.namelist() if f.startswith(prefix)]
+            if not plugin_files:
+                return {"success": False, "message": f"市场中未找到插件: {plugin_name}"}
+
+            if os.path.exists(target_dir):
+                shutil.rmtree(target_dir)
+
+            # 解压插件文件
+            with tempfile.TemporaryDirectory() as tmp:
+                for f in plugin_files:
+                    rel = f[len(prefix):]
+                    if not rel:
+                        continue
+                    target_path = os.path.join(tmp, plugin_name, rel)
+                    if f.endswith('/'):
+                        os.makedirs(target_path, exist_ok=True)
+                    else:
+                        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                        with zf.open(f) as src, open(target_path, 'wb') as dst:
+                            dst.write(src.read())
+                # 移动到最终位置
+                extracted = os.path.join(tmp, plugin_name)
+                if os.path.isdir(extracted):
+                    shutil.move(extracted, target_dir)
+
+        return {
+            "success": True,
+            "message": f"已安装插件「{plugin_name}」，重启后生效",
+            "need_restart": True,
+        }
+    except Exception as e:
+        return {"success": False, "message": f"安装失败: {str(e)}"}
+
+
 @router.get("/agent/chat/stream")
 async def stream_events(request_id: str = Query(...)):
     queue = get_queue(request_id)

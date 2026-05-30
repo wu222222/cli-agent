@@ -30,6 +30,11 @@
           :class="{ active: activeTab === 'plugins' }"
           @click="activeTab = 'plugins'; loadPluginConfig(); loadInstalledPlugins()"
         >插件配置</button>
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'market' }"
+          @click="activeTab = 'market'; loadMarketplace()"
+        >插件市场</button>
       </div>
 
       <!-- API 配置 Tab -->
@@ -166,6 +171,46 @@
           <p v-if="yamlMessage" class="setup-message" :class="yamlMessageType">{{ yamlMessage }}</p>
         </div>
       </div>
+
+      <!-- 插件市场 Tab -->
+      <div v-show="activeTab === 'market'" class="tab-content">
+        <div class="market-area">
+          <div class="market-header">
+            <h3>插件市场</h3>
+            <button class="yaml-btn" @click="loadMarketplace" :disabled="marketLoading">
+              {{ marketLoading ? '加载中...' : '刷新' }}
+            </button>
+          </div>
+          <div v-if="marketMessage" class="setup-message" :class="marketMessageType">{{ marketMessage }}</div>
+          <div v-if="marketLoading && marketplacePlugins.length === 0" class="installed-empty">加载中...</div>
+          <div v-else-if="marketplacePlugins.length === 0" class="installed-empty">暂无可用插件</div>
+          <div v-else class="market-list">
+            <div v-for="p in marketplacePlugins" :key="p.name" class="market-item">
+              <div class="market-info">
+                <div class="market-top">
+                  <span class="market-name">{{ p.name }}</span>
+                  <span class="installed-type">{{ p.type }}</span>
+                  <span class="market-version">v{{ p.version }}</span>
+                </div>
+                <div class="market-desc">{{ p.description }}</div>
+                <div class="market-tags">
+                  <span v-for="tag in (p.tags || [])" :key="tag" class="market-tag">{{ tag }}</span>
+                </div>
+              </div>
+              <div class="market-actions">
+                <button
+                  class="market-install-btn"
+                  :class="{ installed: isInstalled(p.name) }"
+                  @click="handleInstallFromMarket(p)"
+                  :disabled="isInstalled(p.name) || marketInstalling === p.name"
+                >
+                  {{ marketInstalling === p.name ? '安装中...' : (isInstalled(p.name) ? '已安装' : '安装') }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -178,7 +223,7 @@ import api from '@/api/agent'
 import TitleBar from '@/components/TitleBar.vue'
 
 const router = useRouter()
-const activeTab = ref<'api' | 'plugins'>('api')
+const activeTab = ref<'api' | 'plugins' | 'market'>('api')
 const loading = ref(true)
 // 首次启动 = 未配置 = standalone（显示关闭按钮）；已配置 = 从设置进入（显示返回按钮）
 const isStandalone = ref(true)
@@ -328,6 +373,60 @@ async function handleDeletePlugin(dirName: string) {
   } catch (err: any) {
     importMessageType.value = 'error'
     importMessage.value = '删除失败: ' + (err.message || '未知错误')
+  }
+}
+
+// === 插件市场 ===
+const marketplacePlugins = ref<any[]>([])
+const marketLoading = ref(false)
+const marketInstalling = ref('')
+const marketMessage = ref('')
+const marketMessageType = ref<'ok' | 'error'>('ok')
+
+async function loadMarketplace() {
+  marketLoading.value = true
+  marketMessage.value = ''
+  try {
+    const resp = await api.get('/plugins/marketplace')
+    marketplacePlugins.value = resp.data || []
+    if (marketplacePlugins.value.length === 0) {
+      marketMessage.value = '暂无可用插件'
+      marketMessageType.value = 'ok'
+    }
+  } catch (e: any) {
+    marketMessage.value = '加载失败: ' + (e.message || '网络错误')
+    marketMessageType.value = 'error'
+  } finally {
+    marketLoading.value = false
+  }
+}
+
+function isInstalled(name: string): boolean {
+  return installedPlugins.value.some((p: any) => p.name === name)
+}
+
+async function handleInstallFromMarket(plugin: any) {
+  if (isInstalled(plugin.name)) return
+  marketInstalling.value = plugin.name
+  marketMessage.value = ''
+  try {
+    const resp = await api.post('/plugins/marketplace/install', {
+      name: plugin.name,
+      repo_path: plugin.repo_path,
+    })
+    if (resp.data.success) {
+      marketMessageType.value = 'ok'
+      marketMessage.value = resp.data.message
+      await loadInstalledPlugins()
+    } else {
+      marketMessageType.value = 'error'
+      marketMessage.value = resp.data.message
+    }
+  } catch (e: any) {
+    marketMessageType.value = 'error'
+    marketMessage.value = '安装失败: ' + (e.message || '未知错误')
+  } finally {
+    marketInstalling.value = ''
   }
 }
 
@@ -750,6 +849,123 @@ async function savePluginConfig() {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 插件市场 */
+.market-area {
+  width: 100%;
+  max-width: 860px;
+  margin: 0 auto;
+}
+
+.market-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.market-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.market-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.market-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  transition: border-color 0.15s;
+}
+
+.market-item:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.market-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.market-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.market-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.market-version {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.market-desc {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.45);
+  line-height: 1.4;
+  margin-bottom: 6px;
+}
+
+.market-tags {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.market-tag {
+  font-size: 10px;
+  padding: 1px 6px;
+  background: rgba(64, 158, 255, 0.1);
+  border-radius: 3px;
+  color: rgba(64, 158, 255, 0.7);
+}
+
+.market-actions {
+  flex-shrink: 0;
+}
+
+.market-install-btn {
+  padding: 6px 16px;
+  background: #409eff;
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.market-install-btn:hover:not(:disabled) {
+  background: #66b1ff;
+}
+
+.market-install-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.market-install-btn.installed {
+  background: rgba(103, 194, 58, 0.15);
+  color: #67c23a;
 }
 
 /* YAML 编辑器 */
