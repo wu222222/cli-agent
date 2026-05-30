@@ -38,24 +38,6 @@ plugins:
         description: "要执行的 shell 命令"
     required_params: ["command"]
 
-  - name: "mylab"
-    type: "exec"
-    agent_type: "worker"
-    bound_action: "execute_command"
-    requires_confirmation: true
-    description: "自定义实验环境（flag 靶场）"
-    container_name: "mylab"
-    image: "my_lab_image:latest"
-    entrypoint_cmd: "sh -c"
-    mount_dirs: []
-    category: "shell"
-    icon: "terminal"
-    parameters:
-      command:
-        type: "string"
-        description: "要执行的 shell 命令"
-    required_params: ["command"]
-
   - name: "grep_knowledge"
     type: "exec"
     agent_type: "worker"
