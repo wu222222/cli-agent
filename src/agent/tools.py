@@ -425,7 +425,7 @@ class ToolRegistry:
     def list_compose(self) -> List[str]:
         return list(self._compose_plugins.keys())
 
-    def load_from_yaml(self, path: str, docker_client=None) -> None:
+    def load_from_yaml(self, path: str, docker_client=None, base_dir: str = None) -> None:
         if not os.path.exists(path):
             logger.warning(f"插件配置文件不存在: {path}")
             return
@@ -440,7 +440,28 @@ class ToolRegistry:
             config = yaml.safe_load(f)
 
         for plugin_cfg in config.get('plugins', []):
+            # compose_file 路径修正：相对于 plugin.yaml 所在目录
+            if base_dir and plugin_cfg.get('compose_file'):
+                plugin_cfg = dict(plugin_cfg)
+                plugin_cfg['compose_file'] = os.path.join(base_dir, plugin_cfg['compose_file'])
             self._load_plugin(plugin_cfg, docker_client)
+
+    def load_from_directory(self, plugins_dir: str, docker_client=None) -> int:
+        """扫描 plugins/ 目录，加载所有子目录中的 plugin.yaml"""
+        if not os.path.isdir(plugins_dir):
+            return 0
+
+        loaded = 0
+        for entry in sorted(os.listdir(plugins_dir)):
+            entry_path = os.path.join(plugins_dir, entry)
+            if not os.path.isdir(entry_path):
+                continue
+            plugin_yaml = os.path.join(entry_path, "plugin.yaml")
+            if os.path.isfile(plugin_yaml):
+                self.load_from_yaml(plugin_yaml, docker_client=docker_client, base_dir=entry_path)
+                loaded += 1
+                logger.info(f"从目录加载插件: {entry}")
+        return loaded
 
     def _load_plugin(self, cfg: Dict[str, Any], docker_client=None) -> None:
         plugin_type = cfg.get('type', 'local')
@@ -572,6 +593,17 @@ class ToolRegistry:
                 icon=icon,
                 display_name=display_name or name,
             )
+            # 声明式 handler 绑定：handler: "module.path:func_name"
+            handler_path = cfg.get('handler', '')
+            if handler_path:
+                try:
+                    module_path, func_name = handler_path.rsplit(':', 1)
+                    import importlib
+                    mod = importlib.import_module(module_path)
+                    plugin.handler = getattr(mod, func_name)
+                    logger.info(f"local 插件 '{name}' handler 已绑定: {handler_path}")
+                except Exception as e:
+                    logger.warning(f"local 插件 '{name}' handler 绑定失败 '{handler_path}': {e}")
             self.register(plugin)
             logger.info(f"已注册 local 插件: {name} (agent_type={agent_type})")
 

@@ -1,0 +1,42 @@
+version: "3"
+
+services:
+    client:
+        build:
+            context: .
+            dockerfile: Dockerfile
+        tty: true
+        volumes:
+            - ./volumes:/volumes
+        networks:
+            net-10.9.0.0:
+                ipv4_address: 10.9.0.5
+
+    server:
+        build:
+            context: .
+            dockerfile: Dockerfile
+        tty: true
+        volumes:
+            - ./volumes:/volumes
+        networks:
+            net-10.9.0.0:
+                ipv4_address: 10.9.0.43
+
+    mitm-proxy:
+        build:
+            context: .
+            dockerfile: Dockerfile
+        tty: true
+        volumes:
+            - ./volumes:/volumes
+        networks:
+            net-10.9.0.0:
+                ipv4_address: 10.9.0.143
+
+networks:
+    net-10.9.0.0:
+        name: net-10.9.0.0
+        ipam:
+            config:
+                - subnet: 10.9.0.0/24

@@ -28,7 +28,7 @@
         <button
           class="tab-btn"
           :class="{ active: activeTab === 'plugins' }"
-          @click="activeTab = 'plugins'; loadPluginConfig()"
+          @click="activeTab = 'plugins'; loadPluginConfig(); loadInstalledPlugins()"
         >插件配置</button>
       </div>
 
@@ -120,9 +120,32 @@
 
       <!-- 插件配置 Tab -->
       <div v-show="activeTab === 'plugins'" class="tab-content">
+        <!-- 已安装插件 -->
+        <div class="installed-section">
+          <div class="installed-header">
+            <h3>已安装插件</h3>
+            <label class="import-btn">
+              <input type="file" accept=".zip" @change="handleImportZip" hidden />
+              导入插件 (.zip)
+            </label>
+          </div>
+          <div v-if="importMessage" class="setup-message" :class="importMessageType">{{ importMessage }}</div>
+          <div v-if="installedPlugins.length === 0" class="installed-empty">暂无已安装插件</div>
+          <div v-else class="installed-list">
+            <div v-for="p in installedPlugins" :key="p.name" class="installed-item">
+              <div class="installed-info">
+                <span class="installed-name">{{ p.name }}</span>
+                <span class="installed-type">{{ p.type }}</span>
+              </div>
+              <div class="installed-desc">{{ p.description }}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- YAML 编辑器 -->
         <div class="yaml-editor-area">
           <div class="yaml-toolbar">
-            <span class="yaml-filename">config/plugins.yaml</span>
+            <span class="yaml-filename">config/plugins.yaml (主配置)</span>
             <div class="yaml-actions">
               <span v-if="yamlValid === true" class="yaml-status ok">✓ 格式正确</span>
               <span v-else-if="yamlValid === false" class="yaml-status error">✕ 格式错误</span>
@@ -249,6 +272,45 @@ const yamlLoading = ref(false)
 const yamlSaving = ref(false)
 const yamlMessage = ref('')
 const yamlMessageType = ref<'ok' | 'error'>('ok')
+
+// === 已安装插件 ===
+const installedPlugins = ref<any[]>([])
+const importMessage = ref('')
+const importMessageType = ref<'ok' | 'error'>('ok')
+
+async function loadInstalledPlugins() {
+  try {
+    const resp = await api.get('/plugins/installed')
+    installedPlugins.value = resp.data || []
+  } catch {
+    installedPlugins.value = []
+  }
+}
+
+async function handleImportZip(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  importMessage.value = '导入中...'
+  importMessageType.value = 'ok'
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    const resp = await api.post('/plugins/import', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+    if (resp.data.success) {
+      importMessageType.value = 'ok'
+      importMessage.value = resp.data.message
+      await loadInstalledPlugins()
+    } else {
+      importMessageType.value = 'error'
+      importMessage.value = resp.data.message
+    }
+  } catch (err: any) {
+    importMessageType.value = 'error'
+    importMessage.value = '导入失败: ' + (err.message || '未知错误')
+  }
+  input.value = ''
+}
 
 async function loadPluginConfig() {
   yamlLoading.value = true
@@ -558,6 +620,87 @@ async function savePluginConfig() {
 .skip-btn:hover {
   background: rgba(255, 255, 255, 0.06);
   color: rgba(255, 255, 255, 0.8);
+}
+
+/* 已安装插件 */
+.installed-section {
+  margin-bottom: 20px;
+}
+
+.installed-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.installed-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.import-btn {
+  padding: 5px 12px;
+  background: rgba(103, 194, 58, 0.15);
+  border: 1px solid rgba(103, 194, 58, 0.3);
+  border-radius: 6px;
+  color: #67c23a;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.import-btn:hover {
+  background: rgba(103, 194, 58, 0.25);
+}
+
+.installed-empty {
+  text-align: center;
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 13px;
+  padding: 16px 0;
+}
+
+.installed-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.installed-item {
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+}
+
+.installed-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+
+.installed-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.installed-type {
+  font-size: 10px;
+  padding: 1px 6px;
+  background: rgba(64, 158, 255, 0.15);
+  border-radius: 3px;
+  color: #409eff;
+}
+
+.installed-desc {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+  line-height: 1.4;
 }
 
 /* YAML 编辑器 */

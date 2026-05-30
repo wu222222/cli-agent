@@ -10,7 +10,7 @@ from typing import List, Dict, Any
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, UploadFile, File
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -179,6 +179,124 @@ async def save_plugins_config(body: dict):
 
     logger.info(f"plugins.yaml 已保存 ({len(content)} bytes)")
     return {"success": True, "message": "插件配置已保存，重启应用后生效"}
+
+
+@router.get("/plugins/installed")
+async def list_installed_plugins():
+    """列出 config/plugins/ 目录下已安装的插件"""
+    config_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "config")
+    plugins_dir = os.path.join(config_dir, "plugins")
+    if not os.path.isdir(plugins_dir):
+        return []
+
+    import yaml as _yaml
+    result = []
+    for entry in sorted(os.listdir(plugins_dir)):
+        entry_path = os.path.join(plugins_dir, entry)
+        if not os.path.isdir(entry_path):
+            continue
+        plugin_yaml = os.path.join(entry_path, "plugin.yaml")
+        if not os.path.isfile(plugin_yaml):
+            continue
+        try:
+            with open(plugin_yaml, "r", encoding="utf-8") as f:
+                data = _yaml.safe_load(f)
+            for p in data.get("plugins", []):
+                result.append({
+                    "dir_name": entry,
+                    "name": p.get("name", ""),
+                    "type": p.get("type", "unknown"),
+                    "description": p.get("description", ""),
+                    "category": p.get("category", "other"),
+                    "icon": p.get("icon", "default"),
+                })
+        except Exception as e:
+            result.append({"dir_name": entry, "name": entry, "type": "error", "description": str(e)})
+    return result
+
+
+@router.post("/plugins/import")
+async def import_plugin(file: UploadFile = File(...)):
+    """导入插件 ZIP 包到 config/plugins/ 目录"""
+    import zipfile, io, tempfile, shutil
+
+    content = await file.read()
+    if not content:
+        return {"success": False, "message": "未收到文件"}
+
+    config_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "config")
+    plugins_dir = os.path.join(config_dir, "plugins")
+    os.makedirs(plugins_dir, exist_ok=True)
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(content)) as zf:
+            # 推断插件目录名：zip 根目录下的第一个目录，或 zip 文件名
+            top_levels = set()
+            for name in zf.namelist():
+                parts = name.split('/')
+                if parts[0]:
+                    top_levels.add(parts[0])
+
+            # 如果 zip 内有 plugin.yaml 在根目录，用 zip 文件名作为目录名
+            has_root_plugin_yaml = 'plugin.yaml' in zf.namelist()
+            if has_root_plugin_yaml:
+                # 从 plugin.yaml 读取插件名
+                try:
+                    import yaml as _yaml
+                    with zf.open('plugin.yaml') as f:
+                        data = _yaml.safe_load(f)
+                    plugin_name = data.get("plugins", [{}])[0].get("name", "imported_plugin")
+                except Exception:
+                    plugin_name = "imported_plugin"
+                target_dir = os.path.join(plugins_dir, plugin_name)
+            elif len(top_levels) == 1:
+                target_dir = os.path.join(plugins_dir, list(top_levels)[0])
+            else:
+                target_dir = os.path.join(plugins_dir, "imported_plugin")
+
+            if os.path.exists(target_dir):
+                shutil.rmtree(target_dir)
+
+            # 解压
+            with tempfile.TemporaryDirectory() as tmp:
+                zf.extractall(tmp)
+                # 移动内容到目标目录
+                extracted_items = os.listdir(tmp)
+                if len(extracted_items) == 1 and os.path.isdir(os.path.join(tmp, extracted_items[0])):
+                    shutil.move(os.path.join(tmp, extracted_items[0]), target_dir)
+                else:
+                    shutil.move(tmp, target_dir)
+                    # 重建临时目录（shutil.move 会移走整个目录）
+                    os.makedirs(tmp, exist_ok=True)
+
+            # 验证 plugin.yaml 存在
+            plugin_yaml = os.path.join(target_dir, "plugin.yaml")
+            if not os.path.isfile(plugin_yaml):
+                shutil.rmtree(target_dir)
+                return {"success": False, "message": "ZIP 中未找到 plugin.yaml"}
+
+            # 读取插件信息
+            import yaml as _yaml
+            with open(plugin_yaml, "r", encoding="utf-8") as f:
+                data = _yaml.safe_load(f)
+            plugins_info = []
+            for p in data.get("plugins", []):
+                plugins_info.append({
+                    "name": p.get("name", ""),
+                    "type": p.get("type", "unknown"),
+                    "description": p.get("description", ""),
+                })
+
+            return {
+                "success": True,
+                "message": f"已导入插件到 {os.path.basename(target_dir)}/",
+                "plugins": plugins_info,
+                "need_restart": True,
+            }
+    except zipfile.BadZipFile:
+        return {"success": False, "message": "无效的 ZIP 文件"}
+    except Exception as e:
+        return {"success": False, "message": f"导入失败: {str(e)}"}
 
 
 @router.get("/agent/chat/stream")
