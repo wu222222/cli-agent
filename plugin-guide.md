@@ -1,19 +1,21 @@
 # Safe-CLI-Agent 插件配置指南
 
-> 加一个新插件 = 改一份 YAML 配置。不需要写 Python，不需要改 Vue。
+> 加一个新插件 = 创建一个目录 + 一份 YAML 配置。不需要写 Python，不需要改 Vue。
 
 ---
 
 ## 目录
 
 1. [快速开始：我该选哪种插件类型？](#快速开始)
-2. [插件类型一览](#插件类型一览)
-3. [配置 exec 插件（Agent 工具）](#一配置-exec-插件)
-4. [配置 command 插件（用户快捷命令）](#二配置-command-插件)
-5. [配置 compose 插件（多容器组）](#三配置-compose-插件)
-6. [配置 local 插件（进程内函数）](#四配置-local-插件)
-7. [完整字段参考](#五完整字段参考)
-8. [常见问题](#六常见问题)
+2. [插件目录规范](#插件目录规范)
+3. [插件类型一览](#插件类型一览)
+4. [配置 exec 插件（Agent 工具）](#一配置-exec-插件)
+5. [配置 command 插件（用户快捷命令）](#二配置-command-插件)
+6. [配置 compose 插件（多容器组）](#三配置-compose-插件)
+7. [配置 local 插件（进程内函数）](#四配置-local-插件)
+8. [导入与管理插件](#五导入与管理插件)
+9. [完整字段参考](#六完整字段参考)
+10. [常见问题](#七常见问题)
 
 ---
 
@@ -28,14 +30,53 @@
 | 这个插件需要同时跑多个 Docker 容器吗？ | 是 → | **compose** |
 | 这个插件只是一个 Python 函数，不需要容器？ | 是 → | **local** |
 
-**然后**：在 `config/plugins.yaml` 的 `plugins:` 列表里加一条配置 → 重启服务 → 完成。
+**然后**：在 `config/plugins/` 下创建插件目录，放入 `plugin.yaml` → 重启服务 → 完成。
+
+---
+
+## 插件目录规范
+
+每个插件是 `config/plugins/` 下的一个自包含文件夹：
+
+```
+config/plugins/
+  my_tool/
+    plugin.yaml                    ← 必填：插件定义
+  ctf_lab/
+    plugin.yaml                    ← 插件定义
+    docker-compose.yml             ← compose 插件需要
+    Dockerfile                     ← 可选：自定义镜像
+    volumes/                       ← 可选：脚本、证书等资源
+  my_translator/
+    plugin.yaml
+    handler.py                     ← local 插件的 Python handler
+```
+
+### plugin.yaml 格式
+
+与主配置 `plugins.yaml` 完全一致，`compose_file` 路径**相对于插件目录**：
+
+```yaml
+plugins:
+  - name: "ctf_lab"
+    type: "compose"
+    compose_file: "docker-compose.yml"    ← 相对于 plugin.yaml 所在目录
+    ...
+```
+
+### 加载优先级
+
+1. `config/plugins.yaml` — 主配置（最先加载）
+2. `config/plugins/*/plugin.yaml` — 插件目录（按目录名字母序加载）
+
+所有插件自动合并到 ToolRegistry，名称冲突时后加载的覆盖先加载的。
 
 ---
 
 ## 插件类型一览
 
 ```
-plugins.yaml
+plugin.yaml
   └── plugins:
         ├── exec      → Agent 工具，LLM 自动选择调用
         ├── command   → 用户 /xxx 触发，不暴露给 Agent
@@ -56,45 +97,49 @@ plugins.yaml
 
 ### 最小配置
 
+创建 `config/plugins/my_tool/plugin.yaml`：
+
 ```yaml
-- name: "my_tool"                          # 工具名（Agent 调用时用这个名字）
-  type: "exec"                             # 插件类型
-  agent_type: "worker"                     # 绑定到 WorkerAgent
-  bound_action: "execute_command"          # FSM 路由动作
-  requires_confirmation: true              # 是否需要用户点"确认"
-  description: "我的自定义工具"
-  container_name: "my_container"           # Docker 容器名
-  image: "ubuntu:latest"                   # 首次启动时自动拉取的镜像
-  entrypoint_cmd: "bash -c"               # 容器内执行命令的入口
-  category: "shell"                        # 前端 ToolsView 显示分类
-  icon: "terminal"                         # 前端图标
-  parameters:
-    command:
-      type: "string"
-      description: "要执行的命令"
-  required_params: ["command"]
+plugins:
+  - name: "my_tool"                          # 工具名（Agent 调用时用这个名字）
+    type: "exec"                             # 插件类型
+    agent_type: "worker"                     # 绑定到 WorkerAgent
+    bound_action: "execute_command"          # FSM 路由动作
+    requires_confirmation: true              # 是否需要用户点"确认"
+    description: "我的自定义工具"
+    container_name: "my_container"           # Docker 容器名
+    image: "ubuntu:latest"                   # 首次启动时自动拉取的镜像
+    entrypoint_cmd: "bash -c"               # 容器内执行命令的入口
+    category: "shell"                        # 前端 ToolsView 显示分类
+    icon: "terminal"                         # 前端图标
+    parameters:
+      command:
+        type: "string"
+        description: "要执行的命令"
+    required_params: ["command"]
 ```
 
 ### 完整示例：添加一个 nmap 扫描工具
 
 ```yaml
-- name: "nmap_scanner"
-  type: "exec"
-  agent_type: "worker"
-  bound_action: "execute_command"
-  requires_confirmation: true
-  description: "Nmap 网络扫描器 — 用于端口扫描和服务发现"
-  container_name: "nmap_scanner"
-  image: "instrumentisto/nmap:latest"
-  entrypoint_cmd: "sh -c"
-  mount_dirs: []
-  category: "shell"
-  icon: "target"
-  parameters:
-    command:
-      type: "string"
-      description: "要执行的 nmap 命令，如 'nmap -sV 192.168.1.1'"
-  required_params: ["command"]
+plugins:
+  - name: "nmap_scanner"
+    type: "exec"
+    agent_type: "worker"
+    bound_action: "execute_command"
+    requires_confirmation: true
+    description: "Nmap 网络扫描器 — 用于端口扫描和服务发现"
+    container_name: "nmap_scanner"
+    image: "instrumentisto/nmap:latest"
+    entrypoint_cmd: "sh -c"
+    mount_dirs: []
+    category: "shell"
+    icon: "target"
+    parameters:
+      command:
+        type: "string"
+        description: "要执行的 nmap 命令，如 'nmap -sV 192.168.1.1'"
+    required_params: ["command"]
 ```
 
 ### 如何验证
@@ -112,23 +157,24 @@ plugins.yaml
 ### 最小配置
 
 ```yaml
-- name: "my_command"
-  type: "command"
-  agent_type: "none"                       # none = 不经过 Agent，直接执行
-  command_trigger: "/mycmd"                # 用户在聊天框输入这个触发
-  bound_action: "execute_command"
-  requires_confirmation: false
-  description: "我的快捷命令"
-  container_name: "my_container"
-  image: "alpine:latest"
-  entrypoint_cmd: "sh -c"
-  category: "command"
-  icon: "command"
-  parameters:
-    command:
-      type: "string"
-      description: "要执行的命令"
-  required_params: ["command"]
+plugins:
+  - name: "my_command"
+    type: "command"
+    agent_type: "none"                       # none = 不经过 Agent，直接执行
+    command_trigger: "/mycmd"                # 用户在聊天框输入这个触发
+    bound_action: "execute_command"
+    requires_confirmation: false
+    description: "我的快捷命令"
+    container_name: "my_container"
+    image: "alpine:latest"
+    entrypoint_cmd: "sh -c"
+    category: "command"
+    icon: "command"
+    parameters:
+      command:
+        type: "string"
+        description: "要执行的命令"
+    required_params: ["command"]
 ```
 
 ### agent_type 的选择
@@ -139,154 +185,71 @@ plugins.yaml
 | `"curator"` | 触发 CuratorAgent（知识库管理），如 `/summary` |
 | `"worker"` | 触发 WorkerAgent 推理（command 插件一般不用这个） |
 
-### 完整示例 1：添加 `/status` 查看系统状态的命令
-
-```yaml
-- name: "system_status"
-  type: "command"
-  agent_type: "none"
-  command_trigger: "/status"
-  bound_action: "execute_command"
-  requires_confirmation: false
-  description: "查看系统状态 — 输入 /status 查看 Docker 容器运行情况"
-  container_name: "system_status"
-  image: "alpine:latest"
-  entrypoint_cmd: "sh -c"
-  mount_dirs: ["/var/run/docker.sock:/var/run/docker.sock"]
-  default_command: "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'"
-  category: "command"
-  icon: "info"
-  parameters:
-    command:
-      type: "string"
-      description: "要执行的命令"
-  required_params: ["command"]
-```
-
-用户输入 `/status` → 直接返回 `docker ps` 结果，不经过 Agent。
-
-### 完整示例 2：添加一个走 CuratorAgent 的知识管理命令
-
-```yaml
-- name: "my_curator"
-  type: "command"
-  agent_type: "curator"
-  command_trigger: "/learn"
-  bound_action: "execute_command"
-  requires_confirmation: true
-  description: "知识库学习 — 输入 /learn 触发 CuratorAgent 整理对话中的经验"
-  container_name: "kb_container"
-  image: "alpine:latest"
-  entrypoint_cmd: "sh -c"
-  mount_dirs: ["./knowledge_base:/knowledge_base:rw"]
-  category: "command"
-  icon: "book"
-  parameters:
-    command:
-      type: "string"
-      description: "在知识库中执行的 Shell 命令"
-  required_params: ["command"]
-```
-
 ---
 
 ## 三、配置 compose 插件
 
 **适用场景**：你需要一个多容器的实验环境（如 CTF 靶场、网络攻防演练、微服务调试环境）。
 
-### 文件准备
+### 文件结构
 
 ```
-labs/my_lab/
-├── docker-compose.yml     # 必填：定义所有容器
-├── Dockerfile.attacker    # 可选：自定义攻击机镜像
-├── Dockerfile.target      # 可选：自定义靶机镜像
-└── shared/                # 可选：共享文件（挂载到容器）
+config/plugins/my_lab/
+├── plugin.yaml              ← 插件定义
+├── docker-compose.yml       ← 必填：定义所有容器
+├── Dockerfile.attacker      ← 可选：自定义攻击机镜像
+├── Dockerfile.target        ← 可选：自定义靶机镜像
+└── shared/                  ← 可选：共享文件（挂载到容器）
 ```
 
-### docker-compose.yml 示例
+### plugin.yaml 配置
 
 ```yaml
-version: "3.8"
-services:
-  attacker:
-    build:
-      context: .
-      dockerfile: Dockerfile.attacker
-    networks:
-      - lab_net
+plugins:
+  - name: "my_lab"
+    type: "compose"
+    description: |
+      我的实验环境
+      攻击机可访问靶机内网，通过 /lab_status 查看状态
+    compose_file: "docker-compose.yml"       ← 相对于插件目录
+    category: "lab"
+    icon: "target"
+    services:
+      # Agent 工具 — 攻击机 shell
+      - service_name: "attacker"
+        type: "exec"
+        agent_type: "worker"
+        name: "my_lab_shell"
+        description: "实验攻击机 — 可执行任意命令"
+        requires_confirmation: true
+        entrypoint_cmd: "sh -c"
+        bound_action: "execute_command"
+        parameters:
+          command:
+            type: "string"
+            description: "要执行的命令"
+        required_params: ["command"]
 
-  target1:
-    build:
-      context: .
-      dockerfile: Dockerfile.target
-    networks:
-      - lab_net
+      # 用户命令 — 状态查询
+      - service_name: "attacker"
+        type: "command"
+        agent_type: "none"
+        name: "lab_status"
+        command_trigger: "/lab_status"
+        description: "查看实验环境状态"
+        default_command: "echo '实验环境运行中' && ip addr"
+        requires_confirmation: false
+        entrypoint_cmd: "sh -c"
+        parameters:
+          command:
+            type: "string"
+            description: "要执行的命令"
+        required_params: ["command"]
 
-  db:
-    image: postgres:15-alpine
-    environment:
-      POSTGRES_PASSWORD: secret
-    networks:
-      - lab_net
-
-networks:
-  lab_net:
-    driver: bridge
-```
-
-### plugins.yaml 配置
-
-```yaml
-- name: "my_lab"
-  type: "compose"
-  description: |
-    我的实验环境
-    攻击机可访问靶机内网，通过 /lab_status 查看状态
-  compose_file: "labs/my_lab/docker-compose.yml"
-  category: "lab"
-  icon: "target"
-  services:
-    # Agent 工具 — 攻击机 shell
-    - service_name: "attacker"
-      type: "exec"
-      agent_type: "worker"
-      name: "my_lab_shell"
-      description: "实验攻击机 — 可执行任意命令"
-      requires_confirmation: true
-      entrypoint_cmd: "sh -c"
-      bound_action: "execute_command"
-      parameters:
-        command:
-          type: "string"
-          description: "要执行的命令"
-      required_params: ["command"]
-
-    # 用户命令 — 状态查询
-    - service_name: "attacker"
-      type: "command"
-      agent_type: "none"
-      name: "lab_status"
-      command_trigger: "/lab_status"
-      description: "查看实验环境状态"
-      default_command: "echo '实验环境运行中' && ip addr"
-      requires_confirmation: false
-      entrypoint_cmd: "sh -c"
-      parameters:
-        command:
-          type: "string"
-          description: "要执行的命令"
-      required_params: ["command"]
-
-    # 辅助容器 — 靶机，不暴露给 Agent
-    - service_name: "target1"
-      type: "aux"
-      description: "靶机 1 — 存放第一关 flag"
-
-    # 辅助容器 — 数据库，不暴露给 Agent
-    - service_name: "db"
-      type: "aux"
-      description: "PostgreSQL 数据库 — 实验数据存储"
+      # 辅助容器 — 靶机，不暴露给 Agent
+      - service_name: "target1"
+        type: "aux"
+        description: "靶机 1 — 存放第一关 flag"
 ```
 
 ### type 字段说明（compose 子服务）
@@ -297,36 +260,24 @@ networks:
 | `command` | 注册为用户命令，`/xxx` 触发 | ToolsView 可见，聊天框可触发 |
 | `aux` | **不注册**，仅作为辅助容器运行 | 前端不可见，纯后台运行 |
 
-### 多个命令共享同一容器
-
-一个容器（如 `attacker`）可以同时注册为 `exec` 和 `command`：
-
-```yaml
-services:
-  - service_name: "attacker"
-    type: "exec"         # Agent 可以调用 attacker 执行命令
-    name: "lab_shell"
-    ...
-  - service_name: "attacker"
-    type: "command"      # 用户可以输入 /lab_status 查询状态
-    name: "lab_status"
-    command_trigger: "/lab_status"
-    ...
-```
-
 ---
 
 ## 四、配置 local 插件
 
 **适用场景**：你需要一个纯 Python 函数作为 Agent 工具，不需要 Docker 容器。比如调用外部 API、读写本地文件、触发工作流。
 
-### 步骤 1：写 handler 函数
+### 方式 A：声明式绑定（推荐）
 
-在项目中任意位置写一个异步函数：
+在插件目录中放 handler 文件 + YAML 中声明路径，**零代码修改**：
 
+```
+config/plugins/my_translator/
+├── plugin.yaml
+└── handler.py
+```
+
+**handler.py**：
 ```python
-# my_module/handlers.py
-
 async def translate_handler(text: str, target_lang: str = "en", **kwargs) -> str:
     """调用翻译 API"""
     import aiohttp
@@ -339,45 +290,77 @@ async def translate_handler(text: str, target_lang: str = "en", **kwargs) -> str
             return data.get("translated", text)
 ```
 
-### 步骤 2：配置 YAML
-
+**plugin.yaml**：
 ```yaml
-- name: "translate"
-  type: "local"
-  agent_type: "worker"
-  bound_action: "local_call"
-  requires_confirmation: false
-  description: "翻译工具 — 调用外部翻译 API"
-  display_name: "Translator"
-  category: "ai"
-  icon: "translate"
-  parameters:
-    text:
-      type: "string"
-      description: "要翻译的文本"
-    target_lang:
-      type: "string"
-      description: "目标语言代码，默认 en"
-  required_params: ["text"]
+plugins:
+  - name: "translate"
+    type: "local"
+    agent_type: "worker"
+    bound_action: "local_call"
+    requires_confirmation: false
+    handler: "config.plugins.my_translator.handler:translate_handler"  ← 声明式绑定
+    description: "翻译工具 — 调用外部翻译 API"
+    display_name: "Translator"
+    category: "ai"
+    icon: "translate"
+    parameters:
+      text:
+        type: "string"
+        description: "要翻译的文本"
+      target_lang:
+        type: "string"
+        description: "目标语言代码，默认 en"
+    required_params: ["text"]
 ```
 
-### 步骤 3：注册 handler
+> `handler` 字段格式：`"模块路径:函数名"`，模块路径用 `.` 分隔，函数名在冒号后面。
+
+### 方式 B：手动绑定（兼容旧方式）
 
 在 `src/api/services.py` 的 `_get_or_init_components()` 函数末尾加：
 
 ```python
-# 为 local 插件绑定 handler
 import my_module.handlers
 translate_tool = _tool_registry.get_tool("translate")
 if translate_tool:
     translate_tool.handler = my_module.handlers.translate_handler
 ```
 
-> **注意**：local 插件的 handler 绑定目前仍需手动写一行代码。方案 C 将支持纯 YAML 声明（通过 `handler: "module.path:func_name"` 字段）。
+---
+
+## 五、导入与管理插件
+
+### 方式 1：手动放置
+
+将插件目录放入 `config/plugins/`，重启服务即可。
+
+### 方式 2：ZIP 导入
+
+在设置页 → 插件配置 tab → 点击"导入插件 (.zip)"按钮。
+
+ZIP 包结构要求：
+```
+my_plugin.zip
+  └── my_plugin/              ← 或直接是 plugin.yaml 在根目录
+      ├── plugin.yaml
+      ├── docker-compose.yml  ← compose 插件需要
+      └── ...
+```
+
+导入后自动解压到 `config/plugins/<name>/`，需重启服务生效。
+
+### 方式 3：插件市场（规划中）
+
+从 GitHub 插件市场下载 ZIP 包，通过前端导入。每个插件仓库包含 `plugin.yaml` + 所有依赖文件。
+
+### 管理已安装插件
+
+- **查看**：设置页 → 插件配置 tab → 已安装插件列表
+- **删除**：点击插件右侧 × 按钮，确认后删除目录，重启生效
 
 ---
 
-## 五、完整字段参考
+## 六、完整字段参考
 
 ### 通用字段（所有类型）
 
@@ -418,27 +401,19 @@ if translate_tool:
 
 | 字段 | 必填 | 说明 |
 |------|------|------|
-| `compose_file` | ✅ | docker-compose.yml 的相对路径 |
+| `compose_file` | ✅ | docker-compose.yml 的相对路径（相对于插件目录） |
 | `services` | ✅ | 子服务列表，每个 service 有 `service_name`、`type`、`name` 等 |
-
-### compose services 子字段
-
-| 字段 | 必填 | 说明 |
-|------|------|------|
-| `service_name` | ✅ | 对应 docker-compose.yml 中的 service 名 |
-| `type` | ✅ | `exec` / `command` / `aux`（与顶层插件 type 同构） |
-| `name` | exec/command 必填 | 注册到 ToolRegistry 的工具名 |
-| `command_trigger` | command 必填 | 触发词 |
 
 ### local 专用字段
 
 | 字段 | 必填 | 说明 |
 |------|------|------|
+| `handler` | 否 | 声明式绑定：`"模块路径:函数名"`，如 `"config.plugins.my_plugin.handler:my_func"` |
 | `param_schema` | 否 | Pydantic 模型路径，如 `"src.agent.types:LocalCallParams"` |
 
 ---
 
-## 六、常见问题
+## 七、常见问题
 
 ### Q：加了 exec 插件但 Agent 不调用它？
 
@@ -461,19 +436,21 @@ if translate_tool:
 2. `type: aux` 的容器不会出现在工具列表（这是预期行为）
 3. `service_name` 必须与 docker-compose.yml 中的 service 名完全一致
 
-### Q：可以在一个 YAML 配置里定义多个插件共享一个容器吗？
+### Q：可以在一个 plugin.yaml 里定义多个插件共享一个容器吗？
 
 可以。多个 `exec`/`command` 配置指向同一个 `container_name`。例如 `grep_knowledge` 和 `curator` 共享 `kb_container`。
 
-注意：停止其中一个插件会停止共享容器，影响另一个。方案 C 会引入引用计数解决这个问题。
+注意：停止其中一个插件会停止共享容器，影响另一个。
 
 ### Q：改了 YAML 后需要重启吗？
 
-需要。修改 `config/plugins.yaml` 后需要重启后端服务。
+需要。修改 `plugin.yaml` 或 `plugins.yaml` 后需要重启后端服务。
 
 ### Q：如何删除一个插件？
 
-从 `plugins.yaml` 中移除对应配置，重启服务即可。如果是 compose 插件，先确保容器已停止（`docker compose down`）。
+- **插件目录插件**：在设置页 → 插件配置 → 点击 × 删除，或手动删除 `config/plugins/<name>/` 目录
+- **主配置插件**：从 `plugins.yaml` 中移除对应配置
+- 如果是 compose 插件，先确保容器已停止（`docker compose down`）
 
 ### Q：插件需要自定义 Docker 镜像怎么办？
 
@@ -496,7 +473,13 @@ if translate_tool:
 
 ### Q：local 插件的 handler 怎么绑定？
 
-当前需要在 `src/api/services.py` 中手动绑定。方案 C 将支持在 YAML 中通过 `handler: "module.path:func_name"` 声明，实现零代码绑定。
+**推荐方式**：在 plugin.yaml 中声明 `handler: "模块路径:函数名"`，系统自动导入绑定，无需改代码。
+
+**旧方式**：在 `src/api/services.py` 中手动绑定（仍然兼容）。
+
+### Q：如何导入插件包？
+
+在设置页 → 插件配置 → 点击"导入插件 (.zip)"，选择 ZIP 文件上传。ZIP 中需包含 `plugin.yaml`。导入后重启服务生效。
 
 ### Q：如何查看上下文状态？
 
