@@ -55,7 +55,15 @@ cd frontend && npm install && cd ..
 
 首次启动会进入引导页，配置 API Key / Base URL / 模型名称。
 
-### 启动脚本
+### 安装包模式（最终用户）
+
+从 [Releases](https://github.com/wu222222/cli-agent/releases) 下载 `Safe-CLI-Agent Setup 1.0.0.exe`，双击安装即可。
+
+安装前需确保：
+- Python 3.10+（推荐 conda 环境 `safe-cli-agent`）
+- Docker Desktop 已安装并启动
+
+### 启动脚本（开发者）
 
 | 脚本 | 用途 |
 |------|------|
