@@ -519,6 +519,7 @@ onActivated(() => {
   overflow-y: auto;
   padding: 20px;
   padding-right: 12px;
+  padding-bottom: 80px; /* 为输入框留出空间，避免遮挡消息 */
   display: flex;
   flex-direction: column;
   gap: 10px;
