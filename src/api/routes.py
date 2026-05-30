@@ -613,7 +613,7 @@ async def get_context_status():
         "step": cm.current_step,
         "policy": policy.model_dump(),
         "messages": messages,
-        "summary_count": len(cm.context_summaries),
+        "summary_count": len(cm.summaries),
         "total_count": len(cm.messages),
     }
 

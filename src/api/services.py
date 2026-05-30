@@ -155,21 +155,27 @@ def _get_or_init_components():
 
 
 def _create_compress_handler(llm_client, context_manager):
-    """创建上下文压缩 handler"""
+    """创建上下文压缩 handler（增量总结）"""
     async def compress_handler(messages_to_compress: str, **kwargs) -> str:
-        prompt = f"""请将以下对话历史压缩为一段简洁的摘要，保留关键信息：
+        # 使用增量摘要 prompt（上次摘要 + 未总结的完整消息）
+        if context_manager:
+            prompt = context_manager.build_summary_prompt()
+        else:
+            prompt = messages_to_compress
 
-{messages_to_compress}
+        full_prompt = f"""请基于以下内容生成一段简洁的摘要：
+
+{prompt}
 
 摘要格式要求：
-1. 保留关键操作和发现（按时间顺序）
+1. 在之前摘要的基础上，补充新消息中的关键操作和发现（按时间顺序）
 2. 保留具体的文件路径、IP 地址、URL、flag 值等硬数据
 3. 保留遇到的错误及对应的解决方法
 4. 用中文，控制在 300 字以内
 
-直接输出摘要，不要加额外解释。"""
+直接输出完整的摘要（不是增量，而是完整的最新版摘要）。"""
         try:
-            response = await llm_client.achat([{"role": "user", "content": prompt}])
+            response = await llm_client.achat([{"role": "user", "content": full_prompt}])
             summary = response.strip()
             if context_manager:
                 context_manager.inject_summary(summary)

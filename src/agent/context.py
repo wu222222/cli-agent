@@ -16,7 +16,9 @@ class ContextManager:
         # === 记忆衰减 ===
         self.current_step: int = 0
         self.policy: ContextPolicy = policy or ContextPolicy()
-        self.context_summaries: List[Message] = []  # LLM 生成的摘要消息
+        # === 增量摘要链 ===
+        self.summaries: List[dict] = []  # [{"step": 6, "content": "摘要..."}, ...]
+        self.summary_index: int = 0      # 上次总结覆盖到 messages 的哪个索引
 
     # ============================================================
     # System Prompt
@@ -76,7 +78,13 @@ class ContextManager:
                          receivers=receivers or ["*"], importance="normal")
 
     def inject_summary(self, summary_text: str) -> None:
-        """注入一条 LLM 生成的上下文摘要（独立消息，带时间戳）"""
+        """注入增量摘要，更新摘要链"""
+        self.summaries.append({
+            "step": self.current_step,
+            "content": summary_text,
+        })
+        self.summary_index = len(self.messages)
+        # 同时作为 summary 消息注入 messages（给上下文面板展示）
         msg = Message(
             role="summary",
             content=summary_text,
@@ -86,8 +94,17 @@ class ContextManager:
             importance="normal",
         )
         self.messages.append(msg)
-        self.context_summaries.append(msg)
-        logger.info(f"上下文摘要已注入 (step {self.current_step}): {summary_text[:100]}...")
+        logger.info(f"增量摘要已注入 (step {self.current_step}): {summary_text[:100]}...")
+
+    def get_last_summary(self) -> str:
+        """获取最近一次摘要内容"""
+        if self.summaries:
+            return self.summaries[-1]["content"]
+        return ""
+
+    def get_unsummarized_messages(self) -> List[Message]:
+        """获取上次总结之后的所有消息（完整未截断）"""
+        return self.messages[self.summary_index:]
 
     # ============================================================
     # 消息检索（含记忆衰减）
@@ -248,7 +265,7 @@ class ContextManager:
         return formatted
 
     # ============================================================
-    # 智能摘要
+    # 智能摘要（增量总结）
     # ============================================================
 
     def should_compress(self) -> bool:
@@ -258,7 +275,35 @@ class ContextManager:
         interval = self.policy.summary_interval
         if interval <= 0:
             return False
+        # 有未总结的新消息时才触发
+        unsummarized = self.get_unsummarized_messages()
+        if not unsummarized:
+            return False
         return self.current_step > 0 and self.current_step % interval == 0
+
+    def build_summary_prompt(self) -> str:
+        """构建增量摘要的 prompt：上次摘要 + 未总结的完整消息"""
+        parts = []
+        last = self.get_last_summary()
+        if last:
+            parts.append(f"【之前的摘要】\n{last}")
+        else:
+            parts.append("【之前的摘要】\n（首次总结，无前文）")
+
+        unsummarized = self.get_unsummarized_messages()
+        if unsummarized:
+            lines = []
+            for msg in unsummarized:
+                if msg.role == "system":
+                    continue
+                content_preview = msg.content[:500]
+                if len(msg.content) > 500:
+                    content_preview += "..."
+                tool_info = f" [{msg.tool_name}]" if msg.tool_name else ""
+                lines.append(f"[{msg.role}]{tool_info} {msg.sender}: {content_preview}")
+            parts.append(f"【新消息 (step {self.summary_index}~{self.current_step})】\n" + "\n".join(lines))
+
+        return "\n\n".join(parts)
 
     def collect_expired_messages(self) -> List[Message]:
         """收集已过期的消息（将被压缩/删除）"""
@@ -286,7 +331,8 @@ class ContextManager:
     def clear(self) -> None:
         """清空上下文"""
         self.messages.clear()
-        self.context_summaries.clear()
+        self.summaries.clear()
+        self.summary_index = 0
         self.final_answer = None
         self.current_step = 0
 
@@ -298,16 +344,27 @@ class ContextManager:
         """将上下文状态序列化为字典（用于持久化）"""
         return {
             "messages": [m.model_dump() for m in self.messages],
-            "context_summaries": [m.model_dump() for m in self.context_summaries],
+            "summaries": self.summaries,
+            "summary_index": self.summary_index,
             "current_step": self.current_step,
         }
 
     def from_dict(self, data: Dict[str, Any]) -> None:
         """从字典恢复上下文状态"""
         self.messages = [Message.model_validate(m) for m in data.get("messages", [])]
-        self.context_summaries = [Message.model_validate(m) for m in data.get("context_summaries", [])]
+        self.summaries = data.get("summaries", [])
+        self.summary_index = data.get("summary_index", 0)
         self.current_step = data.get("current_step", 0)
-        logger.info(f"上下文已恢复: {len(self.messages)} 条消息, {len(self.context_summaries)} 条摘要, step={self.current_step}")
+        # 兼容旧格式：从 context_summaries 迁移
+        if not self.summaries and "context_summaries" in data:
+            for m in data.get("context_summaries", []):
+                if isinstance(m, dict):
+                    self.summaries.append({"step": m.get("step_index", 0), "content": m.get("content", "")})
+                else:
+                    self.summaries.append({"step": m.step_index, "content": m.content})
+            if self.summaries:
+                self.summary_index = len(self.messages)
+        logger.info(f"上下文已恢复: {len(self.messages)} 条消息, {len(self.summaries)} 条摘要, step={self.current_step}")
 
     def format_history(self, format_type: str = "simple") -> str:
         """格式化历史消息"""
@@ -359,4 +416,5 @@ class ContextManager:
 
     def get_context_summary(self) -> str:
         """返回上下文摘要"""
-        return f"上下文: {len(self.messages)} 条消息, {len(self.context_summaries)} 条摘要, step={self.current_step}"
+        unsummarized = len(self.messages) - self.summary_index
+        return f"上下文: {len(self.messages)} 条消息, {len(self.summaries)} 条摘要, {unsummarized} 条未总结, step={self.current_step}"
