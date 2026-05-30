@@ -7,6 +7,8 @@
 
 **Safe-CLI-Agent** 是一个基于多智能体架构的智能化命令行助手，以 Electron 桌面端交付。通过 Docker 容器化沙盒与人机交互拦截机制，确保 AI 执行系统级任务时的安全性。
 
+![主界面](docs/demonstration_picture/完整效果图-放在开头.png)
+
 ---
 
 ## 核心特性
@@ -72,6 +74,8 @@ cd frontend && npm run dev       # 前端 http://localhost:5173
 
 ## 桌面端功能
 
+![主界面](docs/demonstration_picture/主界面.png)
+
 ### 界面布局
 
 ```
@@ -106,11 +110,17 @@ cd frontend && npm run dev       # 前端 http://localhost:5173
 - **插件配置 tab**：plugins.yaml YAML 编辑器（等宽字体、格式验证）
 - 标题栏齿轮图标随时进入，首次启动自动弹出
 
+![设置界面](docs/demonstration_picture/前端设置界面.png)
+
+![插件配置](docs/demonstration_picture/插件配置.png)
+
 ### 命令确认（InlineConfirm）
 - 内嵌在聊天流中（非模态弹窗）
 - 显示思考过程 + 即将执行的命令
 - 支持拒绝 + 输入引导信息让 Agent 重新思考
 - 可收缩/展开
+
+![命令确认](docs/demonstration_picture/命令确认页面.png)
 
 ---
 
