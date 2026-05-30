@@ -80,12 +80,9 @@ async function createWindow(): Promise<BrowserWindow> {
     }
   })
 
-  // 关闭窗口 → 最小化到托盘（而非退出）
-  mainWindow.on('close', (event) => {
-    if (!app.isQuitting) {
-      event.preventDefault()
-      mainWindow?.hide()
-    }
+  // 关闭窗口 → 退出应用
+  mainWindow.on('close', () => {
+    app.isQuitting = true
   })
 
   return mainWindow
