@@ -18,6 +18,9 @@ code_task_prompt/
 examples/
 sessions/
 
+# Frontend build output
+frontend/dist/
+
 # Electron
 out/
 release/
@@ -25,3 +28,5 @@ package-lock.json
 # CTF Lab generated files
 labs/ctf_lab/.env
 labs/ctf_lab/shared/
+
+
