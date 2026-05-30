@@ -329,7 +329,7 @@ async def system_restart():
     import time
 
     def delayed_exit():
-        time.sleep(0.5)
+        time.sleep(1)
         os._exit(0)
 
     threading.Thread(target=delayed_exit, daemon=True).start()

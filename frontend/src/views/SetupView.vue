@@ -307,26 +307,27 @@ async function saveConfig() {
 }
 
 async function handleRestart() {
-  if (!confirm('确定要重启后端服务吗？')) return
+  if (!confirm('确定要重启后端服务吗？\n\n请在终端重新运行：python -m src.api.main')) return
   restarting.value = true
   try {
     await api.post('/system/restart')
   } catch {}
-  // 等待后端重启完成
+  // 后端退出后轮询等待恢复
   let retries = 0
   const check = setInterval(async () => {
     retries++
     try {
-      await api.get('/setup/status')
-      clearInterval(check)
-      restarting.value = false
-      window.location.reload()
-    } catch {
-      if (retries > 30) {
+      const resp = await fetch('/api/health')
+      if (resp.ok) {
         clearInterval(check)
         restarting.value = false
-        alert('重启超时，请手动重启后端')
+        window.location.reload()
+        return
       }
+    } catch {}
+    if (retries > 60) {
+      clearInterval(check)
+      restarting.value = false
     }
   }, 1000)
 }
