@@ -167,9 +167,14 @@ export class PythonManager {
 
     this.process.on('exit', (code: number | null) => {
       this._ready = false
-      if (code !== 0 && code !== null) {
-        console.error(`[PythonManager] Python backend exited with code: ${code}`)
-      }
+      console.log(`[PythonManager] Python backend exited with code: ${code}`)
+      // 自动重启（无论退出码是什么，包括用户点击重启按钮触发的 exit(0)）
+      setTimeout(() => {
+        console.log('[PythonManager] Auto-restarting Python backend...')
+        this.start().catch(err => {
+          console.error('[PythonManager] Auto-restart failed:', err.message)
+        })
+      }, 1000)
     })
 
     try {
