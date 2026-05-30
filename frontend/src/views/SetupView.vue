@@ -378,13 +378,14 @@ async function savePluginConfig() {
 
 .tab-btn {
   flex: 1;
-  padding: 10px;
+  padding: 10px 32px;
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
   color: rgba(255, 255, 255, 0.45);
   font-size: 14px;
   cursor: pointer;
+  white-space: nowrap;
   transition: all 0.15s;
 }
 

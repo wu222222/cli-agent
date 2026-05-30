@@ -1,5 +1,4 @@
 @echo off
-chcp 65001 >nul 2>&1
 set PYTHONUTF8=1
 set PYTHONIOENCODING=utf-8
 
@@ -10,9 +9,8 @@ echo.
 
 cd /d "%~dp0"
 
-:: 检查前端产物是否存在
 if exist "frontend\dist\index.html" (
-    echo [√] Frontend dist found, skipping build.
+    echo [+] Frontend dist found, skipping build.
 ) else (
     echo [!] Frontend dist not found, building...
     echo.
