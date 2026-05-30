@@ -75,6 +75,13 @@ watch(() => chatStore.currentSessionId, () => {
   fetchContext()
 })
 
+// 对话过程中自动刷新上下文（防抖 2s）
+let ctxDebounce: ReturnType<typeof setTimeout> | null = null
+watch(() => chatStore.messages.length, () => {
+  if (ctxDebounce) clearTimeout(ctxDebounce)
+  ctxDebounce = setTimeout(() => fetchContext(), 2000)
+})
+
 defineExpose({ fetchContext })
 </script>
 
