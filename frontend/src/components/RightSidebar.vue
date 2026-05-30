@@ -7,7 +7,7 @@
 
       <!-- 上下文 tab -->
       <div v-show="activeTab === 'context'" class="tab-pane">
-        <ContextTab />
+        <ContextTab ref="contextTabRef" />
       </div>
       <!-- 工具 tab -->
       <div v-show="activeTab === 'tools'" class="tab-pane">
@@ -53,10 +53,15 @@ import ToolsTab from './ToolsTab.vue'
 
 const chatStore = useChatStore()
 const activeTab = ref<string | null>(null)
+const contextTabRef = ref<InstanceType<typeof ContextTab> | null>(null)
 const panelWidth = ref(280)
 
 function toggleTab(tab: string) {
   activeTab.value = activeTab.value === tab ? null : tab
+  // 打开上下文 tab 时刷新数据
+  if (activeTab.value === 'context') {
+    contextTabRef.value?.fetchContext()
+  }
 }
 
 // 切换会话时重置 tab（上下文数据由 ContextTab 自己处理）
