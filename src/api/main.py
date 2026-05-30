@@ -5,7 +5,6 @@ import sys
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 # Windows: PEP 540 UTF-8 模式 — 必须在任何 I/O 之前设置
 if sys.platform == "win32":
@@ -50,13 +49,28 @@ app.include_router(router)
 
 # ── 生产模式：Serve 前端静态文件 ──────────────────────────
 # 仅在桌面端打包后生效（frontend/dist 存在时）
+# 不能用 app.mount("/") — 它会拦截所有请求导致 /api/* 路由 404
 FRONTEND_DIST = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
     "frontend", "dist"
 )
 
 if os.path.exists(FRONTEND_DIST):
-    app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")
+    from starlette.middleware.base import BaseHTTPMiddleware
+    from starlette.responses import FileResponse
+
+    class FrontendMiddleware(BaseHTTPMiddleware):
+        """非 /api 请求 → 返回 dist/index.html（SPA fallback）"""
+        async def dispatch(self, request, call_next):
+            if request.url.path.startswith("/api"):
+                return await call_next(request)
+            # 尝试返回静态文件，不存在则 fallback 到 index.html
+            file_path = os.path.join(FRONTEND_DIST, request.url.path.lstrip("/"))
+            if os.path.isfile(file_path):
+                return FileResponse(file_path)
+            return FileResponse(os.path.join(FRONTEND_DIST, "index.html"))
+
+    app.add_middleware(FrontendMiddleware)
     logger.info(f"前端静态文件服务已启用: {FRONTEND_DIST}")
 
 if __name__ == "__main__":
