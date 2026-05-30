@@ -361,8 +361,8 @@ async def install_from_marketplace(body: dict):
     target_dir = os.path.join(plugins_dir, plugin_name)
 
     try:
-        # 下载整个仓库 ZIP
-        async with httpx.AsyncClient(timeout=30) as client:
+        # 下载整个仓库 ZIP（GitHub 会 302 重定向到 codeload）
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
             resp = await client.get(f"https://github.com/{MARKETPLACE_REPO}/archive/refs/heads/main.zip")
             resp.raise_for_status()
 
