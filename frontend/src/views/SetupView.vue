@@ -138,6 +138,7 @@
                 <span class="installed-type">{{ p.type }}</span>
               </div>
               <div class="installed-desc">{{ p.description }}</div>
+              <button class="installed-delete" @click="handleDeletePlugin(p.dir_name)" title="删除插件">×</button>
             </div>
           </div>
         </div>
@@ -310,6 +311,24 @@ async function handleImportZip(e: Event) {
     importMessage.value = '导入失败: ' + (err.message || '未知错误')
   }
   input.value = ''
+}
+
+async function handleDeletePlugin(dirName: string) {
+  if (!confirm(`确定要删除插件「${dirName}」吗？此操作不可撤销。`)) return
+  try {
+    const resp = await api.delete(`/plugins/installed/${dirName}`)
+    if (resp.data.success) {
+      importMessageType.value = 'ok'
+      importMessage.value = resp.data.message
+      await loadInstalledPlugins()
+    } else {
+      importMessageType.value = 'error'
+      importMessage.value = resp.data.message
+    }
+  } catch (err: any) {
+    importMessageType.value = 'error'
+    importMessage.value = '删除失败: ' + (err.message || '未知错误')
+  }
 }
 
 async function loadPluginConfig() {
@@ -625,6 +644,10 @@ async function savePluginConfig() {
 /* 已安装插件 */
 .installed-section {
   margin-bottom: 20px;
+  width: 100%;
+  max-width: 860px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .installed-header {
@@ -670,17 +693,38 @@ async function savePluginConfig() {
 }
 
 .installed-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 10px 12px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 8px;
 }
 
+.installed-delete {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.25);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+
+.installed-delete:hover {
+  background: rgba(245, 108, 108, 0.15);
+  color: #f56c6c;
+}
+
 .installed-info {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 3px;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .installed-name {
@@ -698,9 +742,14 @@ async function savePluginConfig() {
 }
 
 .installed-desc {
+  flex: 1;
   font-size: 11px;
   color: rgba(255, 255, 255, 0.4);
   line-height: 1.4;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* YAML 编辑器 */

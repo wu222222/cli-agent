@@ -215,6 +215,27 @@ async def list_installed_plugins():
     return result
 
 
+@router.delete("/plugins/installed/{dir_name}")
+async def delete_installed_plugin(dir_name: str):
+    """删除 config/plugins/ 下的已安装插件"""
+    import shutil
+    config_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "config")
+    target = os.path.join(config_dir, "plugins", dir_name)
+    # 安全检查：只允许删除 plugins/ 下的子目录
+    real_target = os.path.realpath(target)
+    real_plugins = os.path.realpath(os.path.join(config_dir, "plugins"))
+    if not real_target.startswith(real_plugins + os.sep):
+        return {"success": False, "message": "非法路径"}
+    if not os.path.isdir(target):
+        return {"success": False, "message": f"插件目录不存在: {dir_name}"}
+    try:
+        shutil.rmtree(target)
+        logger.info(f"已删除插件目录: {dir_name}")
+        return {"success": True, "message": f"已删除插件「{dir_name}」，重启后生效"}
+    except Exception as e:
+        return {"success": False, "message": f"删除失败: {str(e)}"}
+
+
 @router.post("/plugins/import")
 async def import_plugin(file: UploadFile = File(...)):
     """导入插件 ZIP 包到 config/plugins/ 目录"""
