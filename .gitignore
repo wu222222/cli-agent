@@ -21,6 +21,9 @@ sessions/
 # Frontend build output
 frontend/dist/
 
+# 插件目录（本地使用，不推送到远程）
+config/plugins/
+
 # Electron
 out/
 release/
