@@ -1,0 +1,22 @@
+# 互联网搜索工具插件
+plugins:
+  - name: "search"
+    version: "1.0.0"
+    author: "wu22"
+    type: "exec"
+    agent_type: "worker"
+    bound_action: "execute_command"
+    requires_confirmation: false
+    description: "互联网搜索工具 — 通过 DuckDuckGo 搜索网页信息，无需 API Key"
+    container_name: "search"
+    image: "search-tool:latest"
+    network_mode: "bridge"
+    entrypoint_cmd: "python3 /app/search.py"
+    mount_dirs: []
+    category: "search"
+    icon: "globe"
+    parameters:
+      command:
+        type: "string"
+        description: "搜索关键词（英文效果更好），如 'python tutorial'"
+    required_params: ["command"]

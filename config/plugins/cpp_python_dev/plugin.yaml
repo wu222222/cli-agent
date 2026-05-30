@@ -1,0 +1,22 @@
+# C++/Python 开发环境插件
+plugins:
+  - name: "cpp_python_dev"
+    version: "1.0.0"
+    author: "wu22"
+    type: "exec"
+    agent_type: "worker"
+    bound_action: "execute_command"
+    requires_confirmation: true
+    description: "C++/Python 开发环境 — 支持编译 C++ 代码和运行 Python 脚本，可用于开发和测试小型项目"
+    container_name: "cpp_python_dev"
+    image: "cpp-python-dev:latest"
+    entrypoint_cmd: "bash -c"
+    mount_dirs:
+      - "./workspace:/workspace:rw"
+    category: "shell"
+    icon: "code"
+    parameters:
+      command:
+        type: "string"
+        description: "要执行的命令，如 'g++ main.cpp -o app && ./app' 或 'python3 script.py'"
+    required_params: ["command"]
