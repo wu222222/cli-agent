@@ -102,8 +102,8 @@ import { useChatStore } from '@/stores/chat'
 import { useSSE } from '@/composables/useSSE'
 import MessageBubble from '@/components/MessageBubble.vue'
 import InlineConfirm from '@/components/InlineConfirm.vue'
-import HistoryPanel from '@/components/HistoryPanel.vue'
 import RightSidebar from '@/components/RightSidebar.vue'
+import HistoryPanel from '@/components/HistoryPanel.vue'
 import TitleBar from '@/components/TitleBar.vue'
 
 const chatStore = useChatStore()
@@ -331,16 +331,6 @@ function handleResumeSession(data: { session_id: string; messages: any[]; tool_n
   // 插件配置已在 resumeSession API 中恢复
   // 消息已在 HistoryPanel 中恢复
 }
-
-// 保存消息到当前 session
-// async function saveMessageToSession(msg: any) {
-//   if (!chatStore.currentSessionId) return
-//   try {
-//     await saveSessionMessage(chatStore.currentSessionId, msg)
-//   } catch (e) {
-//     console.error('保存消息失败:', e)
-//   }
-// }
 
 // 自动创建 session（首条消息时）
 async function ensureSession() {

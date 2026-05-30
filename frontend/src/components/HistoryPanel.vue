@@ -247,9 +247,11 @@ watch(() => chatStore.toolsUpdatedAt, () => {
   loadSessions()
 })
 
-// 消息数量变化时刷新会话列表（动态更新条数）
+// 消息数量变化时刷新会话列表（防抖，避免频繁请求）
+let msgDebounce: ReturnType<typeof setTimeout> | null = null
 watch(() => chatStore.messages.length, () => {
-  loadSessions()
+  if (msgDebounce) clearTimeout(msgDebounce)
+  msgDebounce = setTimeout(() => loadSessions(), 1000)
 })
 </script>
 
