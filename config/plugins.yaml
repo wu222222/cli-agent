@@ -56,44 +56,6 @@ plugins:
         description: "在知识库目录中执行的 Shell 命令，如 'grep -r keyword /knowledge_base'"
     required_params: ["command"]
 
-  - name: "search"
-    type: "exec"
-    agent_type: "worker"
-    bound_action: "execute_command"
-    requires_confirmation: false
-    description: "互联网搜索工具 — 通过 DuckDuckGo 搜索网页信息，无需 API Key"
-    container_name: "search"
-    image: "search-tool:latest"
-    network_mode: "bridge"
-    entrypoint_cmd: "python3 /app/search.py"
-    mount_dirs: []
-    category: "search"
-    icon: "globe"
-    parameters:
-      command:
-        type: "string"
-        description: "搜索关键词（英文效果更好），如 'python tutorial'"
-    required_params: ["command"]
-
-  - name: "cpp_python_dev"
-    type: "exec"
-    agent_type: "worker"
-    bound_action: "execute_command"
-    requires_confirmation: true
-    description: "C++/Python 开发环境 — 支持编译 C++ 代码和运行 Python 脚本，可用于开发和测试小型项目"
-    container_name: "cpp_python_dev"
-    image: "cpp-python-dev:latest"
-    entrypoint_cmd: "bash -c"
-    mount_dirs:
-      - "./workspace:/workspace:rw"  # 挂载本地工作目录
-    category: "shell"
-    icon: "code"
-    parameters:
-      command:
-        type: "string"
-        description: "要执行的命令，如 'g++ main.cpp -o app && ./app' 或 'python3 script.py'"
-    required_params: ["command"]
-
   # ============================
   # command 插件 — 用户快捷命令
   # ============================
@@ -155,5 +117,6 @@ plugins:
         description: "简述你得出此结论的证据链（可选）"
     required_params: ["final_answer"]
 
-# 实验插件（ctf_lab, crypto_tls, kali）已移至 config/plugins_lab.yaml
-# 详见 LABS.md
+# 额外插件（search, cpp_python_dev, kali, ctf_lab, crypto_tls 等）
+# 请从插件市场安装：https://wu222222.github.io/cli-agent-plugins/
+# 或手动放入 config/plugins/ 目录
