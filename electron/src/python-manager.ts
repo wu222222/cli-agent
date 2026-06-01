@@ -20,7 +20,7 @@ export class PythonManager {
   private getSavedPythonPath(): string | null {
     try {
       const configPath = app.isPackaged
-        ? path.join(process.resourcesPath, 'app.asar.unpack', 'config', 'electron-config.json')
+        ? path.join(process.resourcesPath, 'app.asar.unpacked', 'config', 'electron-config.json')
         : path.join(__dirname, '../../config/electron-config.json')
 
       if (fs.existsSync(configPath)) {

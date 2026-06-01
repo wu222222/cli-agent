@@ -116,7 +116,7 @@ async function createPythonSetupWindow(errorMessage: string): Promise<BrowserWin
 
   // 加载本地 HTML 文件
   const htmlPath = app.isPackaged
-    ? path.join(process.resourcesPath, 'app.asar.unpack', 'electron', 'resources', 'python-setup.html')
+    ? path.join(process.resourcesPath, 'app.asar.unpacked', 'electron', 'resources', 'python-setup.html')
     : path.join(__dirname, '../resources/python-setup.html')
 
   await setupWindow.loadFile(htmlPath)
