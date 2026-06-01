@@ -10,6 +10,8 @@ export class PythonManager {
   private process: ChildProcess | null = null
   private port: number = 8000
   private _ready: boolean = false
+  private _restartCount: number = 0
+  private static MAX_RESTARTS = 3
 
   get ready(): boolean {
     return this._ready
@@ -62,8 +64,17 @@ export class PythonManager {
     const condaPython = resolveCondaPython()
     if (condaPython) return condaPython
 
-    // 系统 PATH
-    return process.platform === 'win32' ? 'python' : 'python3'
+    // 系统 PATH — 验证 fastapi 是否可用
+    const sysPython = process.platform === 'win32' ? 'python' : 'python3'
+    try {
+      const { execSync } = require('child_process')
+      execSync(`${sysPython} -c "import fastapi"`, { stdio: 'ignore', timeout: 5000 })
+      return sysPython
+    } catch {
+      // 系统 Python 没有 fastapi，返回 conda 路径让 start() 报错
+      console.error('[PythonManager] 系统 Python 缺少 fastapi，请激活 safe-cli-agent 环境')
+      return sysPython
+    }
   }
 
   /**
@@ -185,13 +196,31 @@ export class PythonManager {
     this.process.on('exit', (code: number | null) => {
       this._ready = false
       console.log(`[PythonManager] Python backend exited with code: ${code}`)
-      // 自动重启（无论退出码是什么，包括用户点击重启按钮触发的 exit(0)）
-      setTimeout(() => {
-        console.log('[PythonManager] Auto-restarting Python backend...')
-        this.start().catch(err => {
-          console.error('[PythonManager] Auto-restart failed:', err.message)
-        })
-      }, 1000)
+
+      // 退出码 0 = 用户主动重启，直接重启
+      if (code === 0) {
+        this._restartCount = 0
+        setTimeout(() => {
+          this.start().catch(err => {
+            console.error('[PythonManager] Restart failed:', err.message)
+          })
+        }, 1000)
+        return
+      }
+
+      // 非 0 退出 = 启动失败，限制重试次数
+      this._restartCount++
+      if (this._restartCount <= PythonManager.MAX_RESTARTS) {
+        console.log(`[PythonManager] Auto-restarting (${this._restartCount}/${PythonManager.MAX_RESTARTS})...`)
+        setTimeout(() => {
+          this.start().catch(err => {
+            console.error('[PythonManager] Auto-restart failed:', err.message)
+          })
+        }, 2000)
+      } else {
+        console.error(`[PythonManager] 已重试 ${PythonManager.MAX_RESTARTS} 次仍失败，停止自动重启`)
+        this._restartCount = 0
+      }
     })
 
     try {
