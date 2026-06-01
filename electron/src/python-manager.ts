@@ -175,9 +175,9 @@ export class PythonManager {
       }
     }
 
-    // 打包模式：Python 源码在 app.asar.unpack 中（asar 无法直接执行 Python）
+    // 打包模式：Python 源码在 app.asar.unpacked 中（asar 无法直接执行 Python）
     const projectRoot = app.isPackaged
-      ? path.join(process.resourcesPath, 'app.asar.unpack')
+      ? path.join(process.resourcesPath, 'app.asar.unpacked')
       : path.join(__dirname, '../..')
 
     // Windows: 强制控制台使用 UTF-8 编码（解决中文乱码）
