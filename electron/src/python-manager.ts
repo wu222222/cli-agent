@@ -242,6 +242,7 @@ export class PythonManager {
       if (err.code === 'ENOENT' && actualPython !== 'python' && actualPython !== 'python3') {
         console.warn(`[PythonManager] conda Python not accessible: ${actualPython}`)
         console.warn(`[PythonManager] Falling back to system Python`)
+        console.warn(`[PythonManager] 如果系统 Python 缺少依赖，请运行: pip install -r requirements.txt`)
         actualPython = process.platform === 'win32' ? 'python' : 'python3'
         this.process = spawn(actualPython, args, spawnOptions)
         bindProcessEvents(this.process)
@@ -258,8 +259,22 @@ export class PythonManager {
       collecting = false
       console.log(`[PythonManager] Python backend ready (port: ${this.port})`)
     } catch (err: any) {
+      // 检查是否是依赖缺失问题
+      const isMissingDeps = startupLog.includes('ModuleNotFoundError') ||
+        startupLog.includes('No module named')
+
+      let hint = ''
+      if (isMissingDeps) {
+        hint = `\n\n解决方案：
+1. 激活 conda 环境后重新启动应用：
+   conda activate safe-cli-agent
+
+2. 或在系统 Python 中安装依赖：
+   pip install -r requirements.txt`
+      }
+
       const error = new Error(
-        `${err.message}\n\nBackend logs:\n${startupLog.slice(-2000)}`
+        `${err.message}${hint}\n\nBackend logs:\n${startupLog.slice(-2000)}`
       )
       throw error
     }
