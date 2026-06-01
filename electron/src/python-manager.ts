@@ -157,7 +157,9 @@ export class PythonManager {
     console.log(`[PythonManager] Starting Python backend: ${python}`)
     console.log(`[PythonManager] Working directory: ${projectRoot}`)
 
-    this.process = spawn(python, ['-X', 'utf8', '-m', 'src.api.main'], {
+    // 尝试启动 Python，如果 conda Python 失败则回退到系统 Python
+    let actualPython = python
+    const spawnOptions = {
       cwd: projectRoot,
       env: {
         ...process.env,
@@ -167,12 +169,15 @@ export class PythonManager {
         PYTHONLEGACYWINDOWSSTDIO: 'utf-8',
         PORT: String(this.port),
       },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
+      stdio: ['ignore', 'pipe', 'pipe'] as ['ignore', 'pipe', 'pipe'],
+    }
+
+    const args = ['-X', 'utf8', '-m', 'src.api.main']
 
     // 收集启动日志（启动成功后停止收集，但保留 stdout/stderr 转发）
     let startupLog = ''
     let collecting = true
+
     const onStdout = (data: Buffer): void => {
       const text = data.toString('utf-8')
       if (collecting) {
@@ -181,6 +186,7 @@ export class PythonManager {
       }
       process.stdout.write(`[python] ${text}`)
     }
+
     const onStderr = (data: Buffer): void => {
       const text = data.toString('utf-8')
       if (collecting) {
@@ -190,10 +196,7 @@ export class PythonManager {
       process.stderr.write(`[python:err] ${text}`)
     }
 
-    this.process.stdout?.on('data', onStdout)
-    this.process.stderr?.on('data', onStderr)
-
-    this.process.on('exit', (code: number | null) => {
+    const onExit = (code: number | null): void => {
       this._ready = false
       console.log(`[PythonManager] Python backend exited with code: ${code}`)
 
@@ -220,6 +223,32 @@ export class PythonManager {
       } else {
         console.error(`[PythonManager] 已重试 ${PythonManager.MAX_RESTARTS} 次仍失败，停止自动重启`)
         this._restartCount = 0
+      }
+    }
+
+    // 绑定进程事件的辅助函数
+    const bindProcessEvents = (proc: ChildProcess): void => {
+      proc.stdout?.on('data', onStdout)
+      proc.stderr?.on('data', onStderr)
+      proc.on('exit', onExit)
+    }
+
+    // 如果是 conda 路径（非系统 python），先尝试启动
+    this.process = spawn(actualPython, args, spawnOptions)
+    bindProcessEvents(this.process)
+
+    // 监听 error 事件，处理 ENOENT（文件不存在）错误
+    this.process.on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'ENOENT' && actualPython !== 'python' && actualPython !== 'python3') {
+        console.warn(`[PythonManager] conda Python not accessible: ${actualPython}`)
+        console.warn(`[PythonManager] Falling back to system Python`)
+        actualPython = process.platform === 'win32' ? 'python' : 'python3'
+        this.process = spawn(actualPython, args, spawnOptions)
+        bindProcessEvents(this.process)
+        this.process.on('error', (retryErr) => {
+          console.error(`[PythonManager] System Python also failed:`, retryErr.message)
+          this._ready = false
+        })
       }
     })
 
