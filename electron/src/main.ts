@@ -375,7 +375,7 @@ app.whenReady().then(async () => {
     ipcMain.on('save-python-path', (_event, pythonPath: string) => {
       console.log('[Main] 保存 Python 路径:', pythonPath)
       const configPath = app.isPackaged
-        ? path.join(process.resourcesPath, 'app.asar.unpack', 'config', 'electron-config.json')
+        ? path.join(process.resourcesPath, 'app.asar.unpacked', 'config', 'electron-config.json')
         : path.join(__dirname, '../../config/electron-config.json')
 
       const configDir = path.dirname(configPath)
@@ -392,6 +392,7 @@ app.whenReady().then(async () => {
 
       config.python_path = pythonPath
       fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8')
+      console.log('[Main] Python 路径已保存到:', configPath)
     })
 
     // 监听浏览文件请求
