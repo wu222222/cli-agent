@@ -163,17 +163,22 @@ def _create_compress_handler(llm_client, context_manager):
         else:
             prompt = messages_to_compress
 
-        full_prompt = f"""请基于以下内容生成一段简洁的摘要：
+        full_prompt = f"""请基于以下内容生成一段简洁的增量摘要。
 
 {prompt}
 
-摘要格式要求：
-1. 在之前摘要的基础上，补充新消息中的关键操作和发现（按时间顺序）
-2. 保留具体的文件路径、IP 地址、URL、flag 值等硬数据
-3. 保留遇到的错误及对应的解决方法
-4. 用中文，控制在 300 字以内
+重要规则：
+1. 【之前的摘要】部分已经总结过的内容，不要重复！只关注【新消息】中的增量信息
+2. 在之前摘要末尾追加新发现的关键信息（用 "→" 或 "•" 分隔）
+3. 保留具体的文件路径、IP 地址、URL、flag 值等硬数据
+4. 保留遇到的错误及对应的解决方法
+5. 用中文，控制在 300 字以内
 
-直接输出完整的摘要（不是增量，而是完整的最新版摘要）。"""
+输出格式：
+[之前摘要的简要回顾，1-2句]
+→ 新增内容1
+→ 新增内容2
+..."""
         try:
             response = await llm_client.achat([{"role": "user", "content": full_prompt}])
             summary = response.strip()
