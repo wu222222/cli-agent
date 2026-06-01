@@ -109,6 +109,23 @@ export class PythonManager {
 
   async start(): Promise<void> {
     const python = this.resolvePython()
+
+    // 检查 Python 可执行文件是否存在
+    if (!python || python === 'python' || python === 'python3') {
+      // 系统 PATH 中的 python，不检查文件存在性
+    } else {
+      const fs = require('fs')
+      if (!fs.existsSync(python)) {
+        throw new Error(
+          `Python 环境未找到: ${python}\n\n` +
+          `请确保已安装 Python 3.10+ 并创建 conda 环境:\n` +
+          `  conda create -n safe-cli-agent python=3.10\n` +
+          `  conda activate safe-cli-agent\n` +
+          `  pip install -r requirements.txt`
+        )
+      }
+    }
+
     // 打包模式：Python 源码在 app.asar.unpack 中（asar 无法直接执行 Python）
     const projectRoot = app.isPackaged
       ? path.join(process.resourcesPath, 'app.asar.unpack')

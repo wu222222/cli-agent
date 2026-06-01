@@ -44,21 +44,35 @@ export function checkDocker(): boolean {
 export function resolveCondaPython(): string | null {
   const envName = 'safe-cli-agent'
 
-  // 1. 检查 CONDA_PREFIX 环境变量
+  // 1. 检查 CONDA_PREFIX 环境变量（已激活的环境）
   const condaPrefix = process.env.CONDA_PREFIX
-  if (condaPrefix && fs.existsSync(`${condaPrefix}\\python.exe`)) {
-    if (condaPrefix.endsWith(`\\${envName}`) || condaPrefix.includes(`envs\\${envName}`)) {
-      return `${condaPrefix}\\python.exe`
-    }
+  if (condaPrefix) {
+    const p = process.platform === 'win32' ? `${condaPrefix}\\python.exe` : `${condaPrefix}/bin/python`
+    if (fs.existsSync(p)) return p
   }
 
-  // 2. 常见安装路径
+  // 2. 通过 conda info --base 动态获取 conda 安装路径
+  let condaBase = ''
+  try {
+    condaBase = execSync('conda info --base', {
+      encoding: 'utf-8', timeout: 5000, stdio: ['ignore', 'pipe', 'pipe']
+    }).trim()
+  } catch { /* conda 不在 PATH 中 */ }
+
+  if (condaBase) {
+    const p = process.platform === 'win32'
+      ? `${condaBase}\\envs\\${envName}\\python.exe`
+      : `${condaBase}/envs/${envName}/bin/python`
+    if (fs.existsSync(p)) return p
+  }
+
+  // 3. 常见安装路径（兜底）
   if (process.platform === 'win32') {
     const home = process.env.USERPROFILE || process.env.HOME || ''
     const candidates = [
-      `${home}\\miniforge3\\envs\\${envName}\\python.exe`,
       `${home}\\anaconda3\\envs\\${envName}\\python.exe`,
       `${home}\\miniconda3\\envs\\${envName}\\python.exe`,
+      `${home}\\miniforge3\\envs\\${envName}\\python.exe`,
       `${home}\\AppData\\Local\\miniforge3\\envs\\${envName}\\python.exe`,
       `${home}\\mambaforge\\envs\\${envName}\\python.exe`,
     ]
@@ -67,16 +81,14 @@ export function resolveCondaPython(): string | null {
     }
   }
 
-  // 3. 尝试用 conda run 获取 Python 路径
+  // 4. 尝试 conda run（最慢，最后尝试）
   try {
     const result = execSync(
       `conda run -n ${envName} python -c "import sys; print(sys.executable)"`,
       { encoding: 'utf-8', timeout: 10000, stdio: ['ignore', 'pipe', 'pipe'] }
     ).trim()
     if (result && fs.existsSync(result)) return result
-  } catch {
-    // conda 不可用或环境不存在
-  }
+  } catch { /* conda 不可用或环境不存在 */ }
 
   return null
 }
