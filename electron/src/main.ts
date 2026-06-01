@@ -137,6 +137,9 @@ async function createPythonSetupWindow(errorMessage: string): Promise<BrowserWin
   setupWindow.show()
   setupWindow.focus()
 
+  // 自动打开开发者工具（调试用）
+  setupWindow.webContents.openDevTools({ mode: 'detach' })
+
   return setupWindow
 }
 
