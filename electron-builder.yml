@@ -13,11 +13,13 @@ files:
   - "config/**/*"           # 插件配置
   - "knowledge_base/**/*"   # 知识库
   - "workspace/**/*"        # 工作目录
+  - "electron/resources/**/*"  # Electron 资源文件（配置界面等）
 
 # asar 排除：Python 源码必须在磁盘上（Python 无法从 asar 内执行）
 asarUnpack:
   - "src/**/*"
   - "config/**/*"
+  - "electron/resources/**/*"
 
 # Python 后端 — 使用系统 Python（用户需预装 Python 3.10+ 和 Docker）
 # 后续可改为 extraResources + PyInstaller 打包独立 Python
