@@ -25,6 +25,11 @@
       <div class="setup-tabs">
         <button
           class="tab-btn"
+          :class="{ active: activeTab === 'env' }"
+          @click="activeTab = 'env'; loadEnvironments()"
+        >环境配置</button>
+        <button
+          class="tab-btn"
           :class="{ active: activeTab === 'api' }"
           @click="activeTab = 'api'"
         >API 配置</button>
@@ -38,6 +43,77 @@
           :class="{ active: activeTab === 'market' }"
           @click="activeTab = 'market'; loadMarketplace()"
         >插件市场</button>
+      </div>
+
+      <!-- 环境配置 Tab -->
+      <div v-show="activeTab === 'env'" class="tab-content">
+        <div class="env-section">
+          <!-- Docker 状态 -->
+          <div class="env-block">
+            <div class="env-block-header">
+              <h3>Docker</h3>
+              <span class="env-status" :class="envData.docker_status">
+                {{ envData.docker_status === 'running' ? '运行中' : envData.docker_status === 'not_running' ? '已安装未启动' : '未安装' }}
+              </span>
+            </div>
+            <p class="env-desc">容器插件需要 Docker 支持</p>
+            <div v-if="envData.docker_status === 'not_running'" class="env-actions">
+              <button class="env-btn primary" @click="startDocker" :disabled="dockerStarting">
+                {{ dockerStarting ? '启动中...' : '启动 Docker Desktop' }}
+              </button>
+            </div>
+            <div v-else-if="envData.docker_status === 'not_installed'" class="env-actions">
+              <a href="https://www.docker.com/products/docker-desktop/" target="_blank" class="env-btn">下载 Docker Desktop</a>
+            </div>
+          </div>
+
+          <!-- Python 环境 -->
+          <div class="env-block">
+            <div class="env-block-header">
+              <h3>Python 环境</h3>
+              <span class="env-status" :class="envData.has_safe_cli_env ? 'running' : 'not_installed'">
+                {{ envData.has_safe_cli_env ? '已配置' : '未配置' }}
+              </span>
+            </div>
+            <p class="env-desc">当前: Python {{ envData.python_version }} ({{ envData.current_python }})</p>
+
+            <!-- conda 环境列表 -->
+            <div v-if="envData.conda_envs.length > 0" class="env-list">
+              <div v-for="env in envData.conda_envs" :key="env.name" class="env-item"
+                   :class="{ recommended: env.name === 'safe-cli-agent', selected: selectedPython === env.python }"
+                   @click="env.python && (selectedPython = env.python)">
+                <div class="env-item-info">
+                  <span class="env-item-name">{{ env.name }}</span>
+                  <span v-if="env.name === 'safe-cli-agent'" class="env-item-badge">推荐</span>
+                  <span class="env-item-version">Python {{ env.version }}</span>
+                </div>
+                <span class="env-item-path">{{ env.path }}</span>
+              </div>
+            </div>
+            <div v-else class="env-empty">
+              <span>未检测到 conda 环境</span>
+            </div>
+
+            <!-- 创建 safe-cli-agent 环境 -->
+            <div v-if="!envData.has_safe_cli_env" class="env-create">
+              <button class="env-btn primary" @click="handleCreateEnv" :disabled="envCreating">
+                {{ envCreating ? '创建中...' : '创建 safe-cli-agent 环境' }}
+              </button>
+              <div v-if="envCreateLogs.length > 0" class="env-create-logs">
+                <div v-for="(log, i) in envCreateLogs" :key="i" class="env-log">{{ log }}</div>
+              </div>
+            </div>
+
+            <!-- 手动指定 Python 路径 -->
+            <div class="env-manual">
+              <label>手动指定 Python 路径</label>
+              <div class="env-manual-row">
+                <input v-model="manualPythonPath" type="text" class="form-input" placeholder="如 F:\anaconda3\envs\safe-cli-agent\python.exe" />
+                <button class="env-btn" @click="saveManualPython">保存</button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- API 配置 Tab -->
@@ -226,11 +302,113 @@ import api from '@/api/agent'
 import TitleBar from '@/components/TitleBar.vue'
 
 const router = useRouter()
-const activeTab = ref<'api' | 'plugins' | 'market'>('api')
+const activeTab = ref<'env' | 'api' | 'plugins' | 'market'>('env')
 const loading = ref(true)
 const restarting = ref(false)
 // 首次启动 = 未配置 = standalone（显示关闭按钮）；已配置 = 从设置进入（显示返回按钮）
 const isStandalone = ref(true)
+
+// === 环境配置 ===
+const envData = ref({
+  conda_envs: [] as any[],
+  current_python: '',
+  python_version: '',
+  has_safe_cli_env: false,
+  docker_installed: false,
+  docker_running: false,
+  docker_status: 'not_installed',
+})
+const selectedPython = ref('')
+const manualPythonPath = ref('')
+const dockerStarting = ref(false)
+const envCreating = ref(false)
+const envCreateLogs = ref<string[]>([])
+
+async function loadEnvironments() {
+  try {
+    const resp = await api.get('/setup/environments')
+    envData.value = resp.data
+    // 自动选中 safe-cli-agent 环境
+    const safeEnv = resp.data.conda_envs.find((e: any) => e.name === 'safe-cli-agent')
+    if (safeEnv?.python) selectedPython.value = safeEnv.python
+  } catch {}
+}
+
+async function startDocker() {
+  dockerStarting.value = true
+  try {
+    // 尝试启动 Docker Desktop
+    await fetch('/api/system/start-docker', { method: 'POST' }).catch(() => {})
+    // 等待 Docker 启动
+    let retries = 0
+    const check = setInterval(async () => {
+      retries++
+      try {
+        const resp = await api.get('/setup/environments')
+        if (resp.data.docker_running) {
+          clearInterval(check)
+          envData.value = resp.data
+          dockerStarting.value = false
+        }
+      } catch {}
+      if (retries > 30) {
+        clearInterval(check)
+        dockerStarting.value = false
+      }
+    }, 1000)
+  } catch {
+    dockerStarting.value = false
+  }
+}
+
+async function handleCreateEnv() {
+  if (!confirm('将创建 conda 环境 safe-cli-agent (Python 3.10) 并安装依赖，需要几分钟。继续？')) return
+  envCreating.value = true
+  envCreateLogs.value = []
+  try {
+    const resp = await fetch('/api/setup/create-env', { method: 'POST' })
+    const reader = resp.body?.getReader()
+    const decoder = new TextDecoder()
+    if (!reader) return
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      const text = decoder.decode(value)
+      for (const line of text.split('\n')) {
+        if (!line.startsWith('data: ')) continue
+        try {
+          const data = JSON.parse(line.slice(6))
+          if (data.type === 'log') {
+            envCreateLogs.value.push(data.message)
+            // 只保留最后 50 行
+            if (envCreateLogs.value.length > 50) envCreateLogs.value.shift()
+          } else if (data.type === 'progress') {
+            envCreateLogs.value.push(`>>> ${data.message}`)
+          } else if (data.type === 'done') {
+            envCreateLogs.value.push(`✓ ${data.message}`)
+            envCreating.value = false
+            await loadEnvironments()
+          } else if (data.type === 'error') {
+            envCreateLogs.value.push(`✕ ${data.message}`)
+            envCreating.value = false
+          }
+        } catch {}
+      }
+    }
+  } catch (e: any) {
+    envCreateLogs.value.push(`✕ 请求失败: ${e.message}`)
+    envCreating.value = false
+  }
+}
+
+async function saveManualPython() {
+  if (!manualPythonPath.value.trim()) return
+  // 保存到 .env
+  try {
+    await api.post('/setup/save', { python_path: manualPythonPath.value.trim() })
+    selectedPython.value = manualPythonPath.value.trim()
+  } catch {}
+}
 
 // === API 配置 ===
 const saving = ref(false)
@@ -803,6 +981,150 @@ async function savePluginConfig() {
   background: rgba(255, 255, 255, 0.06);
   color: rgba(255, 255, 255, 0.8);
 }
+
+/* 环境配置 */
+.env-section {
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.env-block {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.env-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.env-block-header h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.env-status {
+  font-size: 11px;
+  padding: 2px 10px;
+  border-radius: 12px;
+}
+
+.env-status.running { background: rgba(103, 194, 58, 0.15); color: #67c23a; }
+.env-status.not_running { background: rgba(230, 162, 60, 0.15); color: #e6a23c; }
+.env-status.not_installed { background: rgba(245, 108, 108, 0.15); color: #f56c6c; }
+
+.env-desc {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+  margin: 0 0 10px;
+}
+
+.env-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.env-btn {
+  padding: 6px 14px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.env-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); color: #fff; }
+.env-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.env-btn.primary { background: #409eff; border-color: #409eff; color: #fff; }
+.env-btn.primary:hover:not(:disabled) { background: #66b1ff; }
+
+.env-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.env-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.env-item:hover { background: rgba(255, 255, 255, 0.06); }
+.env-item.recommended { border-color: rgba(64, 158, 255, 0.3); }
+.env-item.selected { background: rgba(64, 158, 255, 0.1); border-color: #409eff; }
+
+.env-item-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.env-item-name { font-size: 13px; color: rgba(255, 255, 255, 0.85); font-weight: 500; }
+.env-item-badge { font-size: 10px; padding: 1px 6px; background: rgba(64, 158, 255, 0.15); color: #409eff; border-radius: 3px; }
+.env-item-version { font-size: 11px; color: rgba(255, 255, 255, 0.35); }
+.env-item-path { font-size: 10px; color: rgba(255, 255, 255, 0.25); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.env-empty { text-align: center; color: rgba(255, 255, 255, 0.3); font-size: 12px; padding: 12px 0; }
+
+.env-create { margin-top: 10px; }
+
+.env-create-logs {
+  margin-top: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 6px;
+  padding: 8px;
+  font-family: 'Consolas', monospace;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  line-height: 1.6;
+}
+
+.env-log { white-space: pre-wrap; word-break: break-all; }
+
+.env-manual {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.env-manual label {
+  display: block;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-bottom: 6px;
+}
+
+.env-manual-row {
+  display: flex;
+  gap: 8px;
+}
+
+.env-manual-row .form-input { flex: 1; }
 
 /* 已安装插件 */
 .installed-section {

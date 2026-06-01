@@ -3,7 +3,9 @@ import json
 import uuid
 import logging
 import os
+import sys
 import shlex
+import shutil
 import yaml
 from typing import List, Dict, Any
 
@@ -334,6 +336,168 @@ async def system_restart():
 
     threading.Thread(target=delayed_exit, daemon=True).start()
     return {"success": True, "message": "正在重启..."}
+
+
+@router.post("/system/start-docker")
+async def start_docker():
+    """启动 Docker Desktop"""
+    import subprocess
+    docker_desktop = r"C:\Program Files\Docker\Docker\Docker Desktop.exe"
+    if os.path.isfile(docker_desktop):
+        try:
+            subprocess.Popen([docker_desktop])
+            return {"success": True, "message": "正在启动 Docker Desktop..."}
+        except Exception as e:
+            return {"success": False, "message": f"启动失败: {str(e)}"}
+    return {"success": False, "message": "未找到 Docker Desktop"}
+
+
+@router.get("/setup/environments")
+async def detect_environments():
+    """检测 Python 环境和 Docker 状态"""
+    import shutil
+    import subprocess
+
+    result = {
+        "conda_envs": [],
+        "current_python": sys.executable,
+        "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+        "has_safe_cli_env": False,
+        "docker_installed": False,
+        "docker_running": False,
+        "docker_status": "not_installed",
+    }
+
+    # Docker 检测
+    docker_path = shutil.which("docker")
+    if docker_path:
+        result["docker_installed"] = True
+        try:
+            subprocess.run(["docker", "info"], capture_output=True, timeout=5, check=True)
+            result["docker_running"] = True
+            result["docker_status"] = "running"
+        except Exception:
+            result["docker_status"] = "not_running"
+    else:
+        # 检查 Docker Desktop 安装路径
+        docker_desktop = r"C:\Program Files\Docker\Docker\resources\bin\docker.exe"
+        if os.path.isfile(docker_desktop):
+            result["docker_installed"] = True
+            result["docker_status"] = "not_running"
+
+    # Conda 环境检测
+    conda_exe = shutil.which("conda")
+    if conda_exe:
+        try:
+            output = subprocess.run(
+                ["conda", "env", "list", "--json"],
+                capture_output=True, text=True, timeout=10
+            )
+            import json as _json
+            env_data = _json.loads(output.stdout)
+            for env_path in env_data.get("envs", []):
+                env_name = os.path.basename(env_path)
+                python_exe = os.path.join(env_path, "python.exe") if sys.platform == "win32" else os.path.join(env_path, "bin", "python")
+                has_python = os.path.isfile(python_exe)
+                version = ""
+                if has_python:
+                    try:
+                        ver_out = subprocess.run(
+                            [python_exe, "-c", "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"],
+                            capture_output=True, text=True, timeout=5
+                        )
+                        version = ver_out.stdout.strip()
+                    except Exception:
+                        pass
+                result["conda_envs"].append({
+                    "name": env_name,
+                    "path": env_path,
+                    "python": python_exe if has_python else "",
+                    "version": version,
+                })
+                if env_name == "safe-cli-agent":
+                    result["has_safe_cli_env"] = True
+        except Exception:
+            pass
+
+    return result
+
+
+@router.post("/setup/create-env")
+async def create_safe_cli_env():
+    """创建 safe-cli-agent conda 环境（SSE 流式进度）"""
+    import subprocess
+
+    async def generate():
+        conda_exe = shutil.which("conda")
+        if not conda_exe:
+            yield f"data: {json.dumps({'type': 'error', 'message': 'conda 未安装'})}\n\n"
+            return
+
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        req_file = os.path.join(project_root, "requirements.txt")
+
+        # Step 1: 创建 conda 环境
+        yield f"data: {json.dumps({'type': 'progress', 'step': 1, 'message': '正在创建 conda 环境 safe-cli-agent (Python 3.10)...'})}\n\n"
+
+        try:
+            proc = subprocess.Popen(
+                [conda_exe, "create", "-n", "safe-cli-agent", "python=3.10", "-y"],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+            )
+            for line in proc.stdout:
+                yield f"data: {json.dumps({'type': 'log', 'message': line.rstrip()})}\n\n"
+            proc.wait()
+            if proc.returncode != 0:
+                yield f"data: {json.dumps({'type': 'error', 'message': f'conda create 失败 (code {proc.returncode})'})}\n\n"
+                return
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': f'创建环境失败: {str(e)}'})}\n\n"
+            return
+
+        yield f"data: {json.dumps({'type': 'progress', 'step': 2, 'message': '正在安装依赖...'})}\n\n"
+
+        # Step 2: pip install
+        env_python = os.path.join(
+            os.path.dirname(conda_exe), "..", "envs", "safe-cli-agent",
+            "python.exe" if sys.platform == "win32" else "bin/python"
+        )
+        if not os.path.isfile(env_python):
+            # 尝试 conda info --base 获取路径
+            try:
+                base_out = subprocess.run(
+                    [conda_exe, "info", "--base"], capture_output=True, text=True, timeout=5
+                )
+                conda_base = base_out.stdout.strip()
+                env_python = os.path.join(
+                    conda_base, "envs", "safe-cli-agent",
+                    "python.exe" if sys.platform == "win32" else "bin/python"
+                )
+            except Exception:
+                pass
+
+        if not os.path.isfile(env_python):
+            yield f"data: {json.dumps({'type': 'error', 'message': '找不到新创建的环境的 Python 路径'})}\n\n"
+            return
+
+        try:
+            proc = subprocess.Popen(
+                [env_python, "-m", "pip", "install", "-r", req_file],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+            )
+            for line in proc.stdout:
+                yield f"data: {json.dumps({'type': 'log', 'message': line.rstrip()})}\n\n"
+            proc.wait()
+            if proc.returncode != 0:
+                yield f"data: {json.dumps({'type': 'error', 'message': f'pip install 失败 (code {proc.returncode})'})}\n\n"
+                return
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': f'安装依赖失败: {str(e)}'})}\n\n"
+            return
+
+        yield f"data: {json.dumps({'type': 'done', 'message': '环境创建完成！', 'python_path': env_python})}\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 
 # === 插件市场 ===
