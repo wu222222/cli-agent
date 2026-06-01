@@ -2,7 +2,7 @@
   <div class="title-bar" @dblclick="handleMaximize">
     <!-- 左侧：应用图标 + 标题 -->
     <div class="title-bar-left">
-      <div class="app-icon">🛡</div>
+      <img class="app-icon" src="/logo.svg" alt="logo" width="24" height="24" />
       <span class="app-title">Safe-CLI-Agent</span>
     </div>
 
@@ -81,7 +81,9 @@ function handleClose() {
 }
 
 .app-icon {
-  font-size: 16px;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
 }
 
 .app-title {

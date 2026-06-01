@@ -14,7 +14,7 @@
 
     <div class="setup-card">
       <div class="setup-header">
-        <div class="setup-logo">🛡</div>
+        <img class="setup-logo" src="/logo.svg" alt="logo" width="32" height="32" />
         <h1 class="setup-title">Safe-CLI-Agent</h1>
         <button class="restart-btn" @click="handleRestart" :disabled="restarting" :title="restarting ? '重启中...' : '重启后端'">
           <svg :class="{ spinning: restarting }" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
@@ -31,12 +31,12 @@
         <button
           class="tab-btn"
           :class="{ active: activeTab === 'plugins' }"
-          @click="activeTab = 'plugins'; loadPluginConfig(); loadInstalledPlugins()"
+          @click="activeTab = 'plugins'"
         >插件配置</button>
         <button
           class="tab-btn"
           :class="{ active: activeTab === 'market' }"
-          @click="activeTab = 'market'; loadMarketplace()"
+          @click="activeTab = 'market'"
         >插件市场</button>
       </div>
 
@@ -394,21 +394,26 @@ const form = ref({
   model: '',
 })
 
+async function loadSetupStatus() {
+  try {
+    const resp = await api.get('/setup/status')
+    status.value = resp.data
+    form.value.base_url = resp.data.base_url || ''
+    form.value.model = resp.data.model || ''
+    isStandalone.value = !resp.data.configured
+  } catch {} finally {
+    loading.value = false
+  }
+}
+
 onMounted(async () => {
-  // 并行加载环境检测和 API 状态
+  // 并行加载所有 tab 数据，之后切换 tab 瞬间完成
   await Promise.all([
     loadEnvironments(),
-    (async () => {
-      try {
-        const resp = await api.get('/setup/status')
-        status.value = resp.data
-        form.value.base_url = resp.data.base_url || ''
-        form.value.model = resp.data.model || ''
-        isStandalone.value = !resp.data.configured
-      } catch {} finally {
-        loading.value = false
-      }
-    })(),
+    loadSetupStatus(),
+    loadPluginConfig(),
+    loadInstalledPlugins(),
+    loadMarketplace(),
   ])
 })
 
@@ -422,6 +427,7 @@ async function saveConfig() {
       apiMessage.value = resp.data.message
       status.value.configured = true
       markConfigured()
+      loadSetupStatus() // 刷新状态
     } else {
       apiMessageType.value = 'error'
       apiMessage.value = resp.data.message
@@ -698,7 +704,9 @@ async function savePluginConfig() {
 }
 
 .setup-logo {
-  font-size: 28px;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
 }
 
 .setup-title {
