@@ -7,6 +7,7 @@ import {
   Menu,
 } from 'electron'
 import path from 'node:path'
+import fs from 'node:fs'
 import { PythonManager } from './python-manager'
 import { createTray } from './tray'
 import { setupNotifications } from './notifications'
@@ -88,6 +89,50 @@ async function createWindow(): Promise<BrowserWindow> {
   return mainWindow
 }
 
+// ── 创建 Python 配置窗口 ──────────────────────────────────
+
+async function createPythonSetupWindow(errorMessage: string): Promise<BrowserWindow> {
+  const getIconPath = (): string => {
+    const ext = process.platform === 'win32' ? '.ico' : '.png'
+    if (app.isPackaged) {
+      return path.join(process.resourcesPath, `icon${ext}`)
+    }
+    return path.join(__dirname, '../../build/icon' + ext)
+  }
+
+  const setupWindow = new BrowserWindow({
+    width: 700,
+    height: 600,
+    resizable: false,
+    title: 'Safe-CLI-Agent - Python 环境配置',
+    icon: getIconPath(),
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+    show: false,
+  })
+
+  // 加载本地 HTML 文件
+  const htmlPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'app.asar.unpack', 'electron', 'resources', 'python-setup.html')
+    : path.join(__dirname, '../resources/python-setup.html')
+
+  await setupWindow.loadFile(htmlPath)
+
+  // 传递错误信息到渲染进程
+  setupWindow.webContents.on('did-finish-load', () => {
+    setupWindow.webContents.send('set-error-message', errorMessage)
+  })
+
+  setupWindow.once('ready-to-show', () => {
+    setupWindow.show()
+  })
+
+  return setupWindow
+}
+
 // ── 注册 IPC Handlers ───────────────────────────────────
 
 function registerIpcHandlers(): void {
@@ -154,8 +199,70 @@ app.whenReady().then(async () => {
   try {
     await pythonManager.start()
   } catch (err: any) {
-    dialog.showErrorBox('后端启动失败', `无法启动 Python 服务：\n${err.message}`)
-    app.quit()
+    console.error('[Main] Python 启动失败:', err.message)
+
+    // 显示 Python 配置窗口
+    const setupWindow = await createPythonSetupWindow(err.message)
+
+    // 监听重启 Python 的请求
+    ipcMain.on('restart-python', async () => {
+      console.log('[Main] 收到重启 Python 请求')
+      try {
+        // 重新创建 PythonManager 并启动
+        pythonManager = new PythonManager()
+        await pythonManager.start()
+
+        // 启动成功，关闭配置窗口，打开主窗口
+        setupWindow.close()
+        await createWindow()
+        createTray(mainWindow!, pythonManager!)
+        setupNotifications(mainWindow!)
+        setupUpdater()
+      } catch (retryErr: any) {
+        console.error('[Main] Python 重启失败:', retryErr.message)
+        setupWindow.webContents.send('set-error-message', retryErr.message)
+      }
+    })
+
+    // 监听保存 Python 路径的请求（直接保存到本地文件）
+    ipcMain.on('save-python-path', (_event, pythonPath: string) => {
+      console.log('[Main] 保存 Python 路径:', pythonPath)
+      const configPath = app.isPackaged
+        ? path.join(process.resourcesPath, 'app.asar.unpack', 'config', 'electron-config.json')
+        : path.join(__dirname, '../../config/electron-config.json')
+
+      const configDir = path.dirname(configPath)
+      if (!fs.existsSync(configDir)) {
+        fs.mkdirSync(configDir, { recursive: true })
+      }
+
+      let config: any = {}
+      if (fs.existsSync(configPath)) {
+        try {
+          config = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+        } catch {}
+      }
+
+      config.python_path = pythonPath
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8')
+    })
+
+    // 监听浏览文件请求
+    ipcMain.on('browse-python-path', async (event) => {
+      const result = await dialog.showOpenDialog({
+        title: '选择 Python 可执行文件',
+        filters: [
+          { name: 'Python', extensions: ['exe'] },
+          { name: 'All Files', extensions: ['*'] }
+        ],
+        properties: ['openFile']
+      })
+
+      if (!result.canceled && result.filePaths.length > 0) {
+        event.sender.send('python-path-selected', result.filePaths[0])
+      }
+    })
+
     return
   }
 

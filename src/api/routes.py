@@ -32,6 +32,28 @@ logger = logging.getLogger("api")
 
 router = APIRouter(prefix="/api")
 
+# 配置文件路径（保存 Python 路径等 Electron 配置）
+CONFIG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "config")
+CONFIG_FILE = os.path.join(CONFIG_DIR, "electron-config.json")
+
+
+def load_electron_config() -> dict:
+    """读取 Electron 配置文件"""
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+
+def save_electron_config(config: dict):
+    """保存 Electron 配置文件"""
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=2, ensure_ascii=False)
+
 
 @router.get("/health", response_model=HealthResponse)
 async def health_check():
@@ -95,6 +117,20 @@ async def setup_save(body: dict):
     api_key = body.get("api_key", "").strip()
     base_url = body.get("base_url", "").strip()
     model = body.get("model", "").strip()
+    python_path = body.get("python_path", "").strip()
+
+    # 保存 Python 路径到配置文件
+    if python_path:
+        config = load_electron_config()
+        config["python_path"] = python_path
+        save_electron_config(config)
+        logger.info(f"Python 路径已保存: {python_path}")
+
+    # 如果只保存 Python 路径，不保存 API 配置
+    if not api_key and not model:
+        if python_path:
+            return {"success": True, "message": "Python 路径已保存，请重启应用使配置生效"}
+        return {"success": False, "message": "请至少填写一项配置"}
 
     # API Key: 如果用户留空但系统环境变量有值，则保留环境变量
     if not api_key:
@@ -421,6 +457,98 @@ async def detect_environments():
             pass
 
     return result
+
+
+@router.get("/setup/python-paths")
+async def list_python_paths():
+    """列出所有可用的 Python 路径，并检查是否安装了 fastapi"""
+    import shutil
+    import subprocess
+
+    paths = []
+
+    # 1. 当前配置的 Python 路径
+    config = load_electron_config()
+    saved_path = config.get("python_path", "")
+    if saved_path and os.path.isfile(saved_path):
+        has_fastapi = False
+        try:
+            subprocess.run(
+                [saved_path, "-c", "import fastapi"],
+                capture_output=True, timeout=5, check=True
+            )
+            has_fastapi = True
+        except Exception:
+            pass
+        paths.append({
+            "path": saved_path,
+            "source": "已配置",
+            "has_fastapi": has_fastapi,
+            "recommended": True,
+        })
+
+    # 2. Conda 环境
+    conda_exe = shutil.which("conda")
+    if conda_exe:
+        try:
+            output = subprocess.run(
+                ["conda", "env", "list", "--json"],
+                capture_output=True, text=True, timeout=10
+            )
+            import json as _json
+            env_data = _json.loads(output.stdout)
+            for env_path in env_data.get("envs", []):
+                env_name = os.path.basename(env_path)
+                python_exe = os.path.join(env_path, "python.exe") if sys.platform == "win32" else os.path.join(env_path, "bin", "python")
+                if os.path.isfile(python_exe) and python_exe != saved_path:
+                    has_fastapi = False
+                    try:
+                        subprocess.run(
+                            [python_exe, "-c", "import fastapi"],
+                            capture_output=True, timeout=5, check=True
+                        )
+                        has_fastapi = True
+                    except Exception:
+                        pass
+                    paths.append({
+                        "path": python_exe,
+                        "source": f"conda ({env_name})",
+                        "has_fastapi": has_fastapi,
+                        "recommended": env_name == "safe-cli-agent",
+                    })
+        except Exception:
+            pass
+
+    # 3. 系统 Python
+    sys_python = shutil.which("python") or shutil.which("python3")
+    if sys_python and sys_python != saved_path:
+        has_fastapi = False
+        try:
+            subprocess.run(
+                [sys_python, "-c", "import fastapi"],
+                capture_output=True, timeout=5, check=True
+            )
+            has_fastapi = True
+        except Exception:
+            pass
+        paths.append({
+            "path": sys_python,
+            "source": "系统 PATH",
+            "has_fastapi": has_fastapi,
+            "recommended": False,
+        })
+
+    return {"paths": paths}
+
+
+@router.get("/setup/python-config")
+async def get_python_config():
+    """获取当前保存的 Python 配置"""
+    config = load_electron_config()
+    return {
+        "python_path": config.get("python_path", ""),
+        "has_config": bool(config.get("python_path")),
+    }
 
 
 @router.post("/setup/create-env")

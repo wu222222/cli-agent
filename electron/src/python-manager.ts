@@ -2,6 +2,7 @@ import { spawn, ChildProcess, exec, execSync } from 'node:child_process'
 import http from 'node:http'
 import type { IncomingMessage } from 'node:http'
 import path from 'node:path'
+import fs from 'node:fs'
 import { app } from 'electron'
 import type { PythonStatus } from './ipc-channels'
 import { resolveCondaPython } from './utils'
@@ -12,6 +13,27 @@ export class PythonManager {
   private _ready: boolean = false
   private _restartCount: number = 0
   private static MAX_RESTARTS = 3
+
+  /**
+   * 读取配置文件中的 Python 路径
+   */
+  private getSavedPythonPath(): string | null {
+    try {
+      const configPath = app.isPackaged
+        ? path.join(process.resourcesPath, 'app.asar.unpack', 'config', 'electron-config.json')
+        : path.join(__dirname, '../../config/electron-config.json')
+
+      if (fs.existsSync(configPath)) {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+        if (config.python_path && fs.existsSync(config.python_path)) {
+          return config.python_path
+        }
+      }
+    } catch (err) {
+      console.warn('[PythonManager] 读取配置文件失败:', err)
+    }
+    return null
+  }
 
   get ready(): boolean {
     return this._ready
@@ -55,16 +77,23 @@ export class PythonManager {
    * 解析 Python 可执行文件路径
    *
    * 优先级：
-   *   1. 打包内置的 Python（extraResources 中的 PyInstaller 产物）
+   *   1. 用户配置的 Python 路径（config/electron-config.json）
    *   2. conda 环境 safe-cli-agent 的 python
    *   3. 系统 PATH 中的 python
    */
   private resolvePython(): string {
-    // 优先 conda 环境
+    // 1. 优先使用用户配置的 Python 路径
+    const savedPath = this.getSavedPythonPath()
+    if (savedPath) {
+      console.log(`[PythonManager] 使用配置的 Python 路径: ${savedPath}`)
+      return savedPath
+    }
+
+    // 2. 优先 conda 环境
     const condaPython = resolveCondaPython()
     if (condaPython) return condaPython
 
-    // 系统 PATH — 验证 fastapi 是否可用
+    // 3. 系统 PATH — 验证 fastapi 是否可用
     const sysPython = process.platform === 'win32' ? 'python' : 'python3'
     try {
       const { execSync } = require('child_process')

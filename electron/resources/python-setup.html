@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Safe-CLI-Agent - Python 环境配置</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      color: #333;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .container {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+      padding: 40px;
+      max-width: 600px;
+      width: 90%;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+    .header h1 {
+      font-size: 24px;
+      color: #1a1a1a;
+      margin-bottom: 8px;
+    }
+    .header p {
+      color: #666;
+      font-size: 14px;
+    }
+    .error-box {
+      background: #fff3f3;
+      border: 1px solid #ffcdd2;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 24px;
+    }
+    .error-box h3 {
+      color: #c62828;
+      font-size: 14px;
+      margin-bottom: 8px;
+    }
+    .error-box pre {
+      background: #f5f5f5;
+      padding: 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .section {
+      margin-bottom: 24px;
+    }
+    .section h2 {
+      font-size: 16px;
+      color: #1a1a1a;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #eee;
+    }
+    .path-list {
+      max-height: 200px;
+      overflow-y: auto;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+    }
+    .path-item {
+      padding: 12px 16px;
+      border-bottom: 1px solid #f0f0f0;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .path-item:last-child { border-bottom: none; }
+    .path-item:hover { background: #f5f5f5; }
+    .path-item.selected { background: #e3f2fd; border-color: #90caf9; }
+    .path-item .path { font-family: monospace; font-size: 13px; color: #333; }
+    .path-item .meta {
+      display: flex;
+      gap: 12px;
+      margin-top: 4px;
+      font-size: 12px;
+      color: #666;
+    }
+    .path-item .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+    }
+    .badge.recommended { background: #e8f5e9; color: #2e7d32; }
+    .badge.has-fastapi { background: #e3f2fd; color: #1565c0; }
+    .badge.no-fastapi { background: #fff3e0; color: #e65100; }
+    .manual-input {
+      display: flex;
+      gap: 12px;
+      margin-top: 16px;
+    }
+    .manual-input input {
+      flex: 1;
+      padding: 10px 14px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 14px;
+      font-family: monospace;
+    }
+    .manual-input input:focus {
+      outline: none;
+      border-color: #1976d2;
+      box-shadow: 0 0 0 2px rgba(25,118,210,0.1);
+    }
+    .btn {
+      padding: 10px 24px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .btn-primary {
+      background: #1976d2;
+      color: white;
+    }
+    .btn-primary:hover:not(:disabled) { background: #1565c0; }
+    .btn-secondary {
+      background: #f5f5f5;
+      color: #333;
+      border: 1px solid #ddd;
+    }
+    .btn-secondary:hover:not(:disabled) { background: #e0e0e0; }
+    .actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      margin-top: 24px;
+      padding-top: 24px;
+      border-top: 1px solid #eee;
+    }
+    .hint {
+      font-size: 12px;
+      color: #666;
+      margin-top: 8px;
+    }
+    .loading {
+      text-align: center;
+      padding: 20px;
+      color: #666;
+    }
+    .success-msg {
+      background: #e8f5e9;
+      border: 1px solid #c8e6c9;
+      border-radius: 8px;
+      padding: 16px;
+      margin-top: 16px;
+      color: #2e7d32;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Safe-CLI-Agent</h1>
+      <p>Python 环境配置</p>
+    </div>
+
+    <div class="error-box" id="errorBox">
+      <h3>后端启动失败</h3>
+      <pre id="errorMessage">无法启动 Python 服务</pre>
+    </div>
+
+    <div class="section">
+      <h2>选择 Python 路径</h2>
+      <div class="path-list" id="pathList">
+        <div class="loading">正在检测可用的 Python 环境...</div>
+      </div>
+      <div class="manual-input">
+        <input type="text" id="manualPath" placeholder="或手动输入 Python 路径...">
+        <button class="btn btn-secondary" onclick="browsePath()">浏览</button>
+      </div>
+      <p class="hint">推荐使用已安装 fastapi 的 Python 环境</p>
+    </div>
+
+    <div class="success-msg" id="successMsg">
+      ✓ 配置已保存，正在重启后端服务...
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-secondary" onclick="exitApp()">退出</button>
+      <button class="btn btn-primary" id="saveBtn" onclick="saveConfig()" disabled>保存并重启</button>
+    </div>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+    let selectedPath = '';
+
+    // 加载可用的 Python 路径
+    async function loadPythonPaths() {
+      try {
+        const response = await fetch('http://localhost:8000/api/setup/python-paths');
+        if (!response.ok) throw new Error('API 请求失败');
+        const data = await response.json();
+        renderPaths(data.paths);
+      } catch (err) {
+        // 后端未启动，显示提示
+        document.getElementById('pathList').innerHTML = `
+          <div style="padding: 16px; color: #666;">
+            无法自动检测 Python 环境，请手动输入路径
+          </div>
+        `;
+      }
+    }
+
+    // 渲染路径列表
+    function renderPaths(paths) {
+      const list = document.getElementById('pathList');
+      if (!paths || paths.length === 0) {
+        list.innerHTML = '<div style="padding: 16px; color: #666;">未检测到可用的 Python 环境</div>';
+        return;
+      }
+
+      list.innerHTML = paths.map(p => `
+        <div class="path-item ${p.recommended ? 'recommended' : ''}"
+             onclick="selectPath('${p.path}', this)">
+          <div class="path">${p.path}</div>
+          <div class="meta">
+            <span>${p.source}</span>
+            ${p.recommended ? '<span class="badge recommended">推荐</span>' : ''}
+            <span class="badge ${p.has_fastapi ? 'has-fastapi' : 'no-fastapi'}">
+              ${p.has_fastapi ? '✓ 已安装 fastapi' : '✕ 缺少 fastapi'}
+            </span>
+          </div>
+        </div>
+      `).join('');
+
+      // 默认选中推荐项
+      const recommended = paths.find(p => p.recommended);
+      if (recommended) {
+        selectPath(recommended.path, list.querySelector('.path-item.recommended'));
+      }
+    }
+
+    // 选择路径
+    function selectPath(path, element) {
+      selectedPath = path;
+      document.getElementById('manualPath').value = path;
+      document.getElementById('saveBtn').disabled = false;
+
+      // 更新选中状态
+      document.querySelectorAll('.path-item').forEach(el => el.classList.remove('selected'));
+      if (element) element.classList.add('selected');
+    }
+
+    // 浏览文件
+    function browsePath() {
+      const { dialog } = require('electron').remote || require('@electron/remote');
+      // 通过 IPC 让主进程打开文件选择对话框
+      ipcRenderer.send('browse-python-path');
+    }
+
+    // 监听文件选择结果
+    ipcRenderer.on('python-path-selected', (event, path) => {
+      if (path) {
+        selectPath(path, null);
+      }
+    });
+
+    // 保存配置
+    async function saveConfig() {
+      const path = document.getElementById('manualPath').value.trim() || selectedPath;
+      if (!path) {
+        alert('请选择或输入 Python 路径');
+        return;
+      }
+
+      const btn = document.getElementById('saveBtn');
+      btn.disabled = true;
+      btn.textContent = '保存中...';
+
+      try {
+        // 先尝试保存到后端（如果可用）
+        try {
+          await fetch('http://localhost:8000/api/setup/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ python_path: path })
+          });
+        } catch {
+          // 后端不可用，直接保存到本地文件
+          ipcRenderer.send('save-python-path', path);
+        }
+
+        // 显示成功消息
+        document.getElementById('successMsg').style.display = 'block';
+        document.getElementById('errorBox').style.display = 'none';
+
+        // 1 秒后重启
+        setTimeout(() => {
+          ipcRenderer.send('restart-python');
+        }, 1000);
+      } catch (err) {
+        alert('保存失败: ' + err.message);
+        btn.disabled = false;
+        btn.textContent = '保存并重启';
+      }
+    }
+
+    // 退出应用
+    function exitApp() {
+      ipcRenderer.send('quit-app');
+    }
+
+    // 初始化
+    loadPythonPaths();
+
+    // 监听错误信息
+    ipcRenderer.on('set-error-message', (event, message) => {
+      document.getElementById('errorMessage').textContent = message || '无法启动 Python 服务';
+    });
+  </script>
+</body>
+</html>
