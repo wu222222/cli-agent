@@ -21,6 +21,13 @@ export interface ElectronAPI {
   windowMaximize: () => void
   windowClose: () => void
   windowIsMaximized: () => Promise<boolean>
+  // Python 配置相关
+  savePythonPath: (path: string) => void
+  restartPython: () => void
+  browsePythonPath: () => void
+  onPythonPathSelected: (callback: (path: string) => void) => void
+  onSetErrorMessage: (callback: (message: string) => void) => void
+  detectPythonPaths: () => Promise<any[]>
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -70,5 +77,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   windowIsMaximized: (): Promise<boolean> => {
     return ipcRenderer.invoke('window-is-maximized')
+  },
+
+  // Python 配置相关
+  savePythonPath: (path: string): void => {
+    ipcRenderer.send('save-python-path', path)
+  },
+  restartPython: (): void => {
+    ipcRenderer.send('restart-python')
+  },
+  browsePythonPath: (): void => {
+    ipcRenderer.send('browse-python-path')
+  },
+  onPythonPathSelected: (callback: (path: string) => void): void => {
+    ipcRenderer.removeAllListeners('python-path-selected')
+    ipcRenderer.on('python-path-selected', (_event, path) => callback(path))
+  },
+  onSetErrorMessage: (callback: (message: string) => void): void => {
+    ipcRenderer.removeAllListeners('set-error-message')
+    ipcRenderer.on('set-error-message', (_event, message) => callback(message))
+  },
+  detectPythonPaths: (): Promise<any[]> => {
+    return ipcRenderer.invoke('detect-python-paths')
   },
 } satisfies ElectronAPI)

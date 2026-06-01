@@ -141,6 +141,59 @@ function registerIpcHandlers(): void {
     return pythonManager?.getStatus() ?? { running: false, pid: null, port: 8000 }
   })
 
+  // 检测可用的 Python 路径
+  ipcMain.handle('detect-python-paths', async () => {
+    const { execSync } = require('child_process')
+    const fs = require('fs')
+    const paths: any[] = []
+
+    // 1. Conda 环境
+    try {
+      const condaOutput = execSync('conda env list --json', { encoding: 'utf-8', timeout: 10000 })
+      const envData = JSON.parse(condaOutput)
+      for (const envPath of envData.envs || []) {
+        const envName = require('path').basename(envPath)
+        const pythonExe = process.platform === 'win32'
+          ? `${envPath}\\python.exe`
+          : `${envPath}/bin/python`
+        if (fs.existsSync(pythonExe)) {
+          let hasFastapi = false
+          try {
+            execSync(`"${pythonExe}" -c "import fastapi"`, { stdio: 'ignore', timeout: 5000 })
+            hasFastapi = true
+          } catch {}
+          paths.push({
+            path: pythonExe,
+            source: `conda (${envName})`,
+            has_fastapi: hasFastapi,
+            recommended: envName === 'safe-cli-agent',
+          })
+        }
+      }
+    } catch {}
+
+    // 2. 系统 Python
+    const sysPython = process.platform === 'win32' ? 'python' : 'python3'
+    try {
+      const sysPath = execSync(`where ${sysPython}`, { encoding: 'utf-8', timeout: 5000 }).trim().split('\n')[0]
+      if (sysPath && fs.existsSync(sysPath)) {
+        let hasFastapi = false
+        try {
+          execSync(`"${sysPath}" -c "import fastapi"`, { stdio: 'ignore', timeout: 5000 })
+          hasFastapi = true
+        } catch {}
+        paths.push({
+          path: sysPath,
+          source: '系统 PATH',
+          has_fastapi: hasFastapi,
+          recommended: false,
+        })
+      }
+    } catch {}
+
+    return paths
+  })
+
   // 最小化到托盘
   ipcMain.on('minimize-to-tray', () => {
     mainWindow?.hide()
