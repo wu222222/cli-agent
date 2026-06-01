@@ -11,6 +11,7 @@ export class PythonManager {
   private process: ChildProcess | null = null
   private port: number = 8000
   private _ready: boolean = false
+  private _startFailed: boolean = false
   private _restartCount: number = 0
   private static MAX_RESTARTS = 3
 
@@ -116,6 +117,14 @@ export class PythonManager {
 
       const check = (): void => {
         if (settled) return
+
+        // 如果启动已失败，立即拒绝
+        if (this._startFailed) {
+          settled = true
+          reject(new Error('Python 启动失败：无法找到可用的 Python 环境'))
+          return
+        }
+
         const req = http.get(`http://localhost:${this.port}/api/health`, (res: IncomingMessage) => {
           res.resume() // 消费响应体，释放 socket
           if (settled) { req.destroy(); return }
@@ -278,7 +287,13 @@ export class PythonManager {
         this.process.on('error', (retryErr) => {
           console.error(`[PythonManager] System Python also failed:`, retryErr.message)
           this._ready = false
+          // 标记启动失败，让 waitForReady 能够检测到
+          this._startFailed = true
         })
+      } else {
+        console.error(`[PythonManager] Python 启动失败:`, err.message)
+        this._ready = false
+        this._startFailed = true
       }
     })
 
