@@ -1,7 +1,7 @@
 <template>
   <div class="app-container">
     <router-view v-slot="{ Component }">
-      <keep-alive include="ChatView">
+      <keep-alive include="ChatView,SetupView">
         <component :is="Component" />
       </keep-alive>
     </router-view>
