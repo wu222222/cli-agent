@@ -409,9 +409,16 @@
         return 0;
       });
 
-      list.innerHTML = paths.map(p => `
-        <div class="path-item ${p.recommended ? 'selected' : ''}"
-             onclick="selectPath('${escapeHtml(p.path)}', this)">
+      // 清空列表
+      list.innerHTML = '';
+
+      // 使用 DOM 操作而不是 innerHTML，避免路径转义问题
+      paths.forEach(p => {
+        const item = document.createElement('div');
+        item.className = 'path-item' + (p.recommended ? ' selected' : '');
+        item.onclick = () => selectPath(p.path, item);
+
+        item.innerHTML = `
           <div class="path">${escapeHtml(p.path)}</div>
           <div class="meta">
             <span>${escapeHtml(p.source)}</span>
@@ -420,8 +427,10 @@
               ${p.has_fastapi ? '✓ 已安装 fastapi' : '✕ 缺少 fastapi'}
             </span>
           </div>
-        </div>
-      `).join('');
+        `;
+
+        list.appendChild(item);
+      });
 
       // 默认选中推荐项
       const recommended = paths.find(p => p.recommended && p.has_fastapi) || paths.find(p => p.recommended) || paths[0];
