@@ -25,14 +25,9 @@
       <div class="setup-tabs">
         <button
           class="tab-btn"
-          :class="{ active: activeTab === 'env' }"
-          @click="activeTab = 'env'; loadEnvironments()"
-        >环境配置</button>
-        <button
-          class="tab-btn"
-          :class="{ active: activeTab === 'api' }"
-          @click="activeTab = 'api'"
-        >API 配置</button>
+          :class="{ active: activeTab === 'config' }"
+          @click="activeTab = 'config'"
+        >环境与配置</button>
         <button
           class="tab-btn"
           :class="{ active: activeTab === 'plugins' }"
@@ -45,37 +40,52 @@
         >插件市场</button>
       </div>
 
-      <!-- 环境配置 Tab -->
-      <div v-show="activeTab === 'env'" class="tab-content">
-        <div class="env-section">
-          <!-- Docker 状态 -->
-          <div class="env-block">
-            <div class="env-block-header">
-              <h3>Docker</h3>
-              <span class="env-status" :class="envData.docker_status">
-                {{ envData.docker_status === 'running' ? '运行中' : envData.docker_status === 'not_running' ? '已安装未启动' : '未安装' }}
-              </span>
-            </div>
-            <p class="env-desc">容器插件需要 Docker 支持</p>
-            <div v-if="envData.docker_status === 'not_running'" class="env-actions">
-              <button class="env-btn primary" @click="startDocker" :disabled="dockerStarting">
-                {{ dockerStarting ? '启动中...' : '启动 Docker Desktop' }}
-              </button>
-            </div>
-            <div v-else-if="envData.docker_status === 'not_installed'" class="env-actions">
-              <a href="https://www.docker.com/products/docker-desktop/" target="_blank" class="env-btn">下载 Docker Desktop</a>
-            </div>
-          </div>
+      <!-- 环境与配置 Tab（合并环境 + API 配置） -->
+      <div v-show="activeTab === 'config'" class="tab-content">
+        <div class="config-section">
 
-          <!-- Python 环境 -->
-          <div class="env-block">
-            <div class="env-block-header">
-              <h3>Python 环境</h3>
-              <span class="env-status" :class="envData.has_safe_cli_env ? 'running' : 'not_installed'">
-                {{ envData.has_safe_cli_env ? '已配置' : '未配置' }}
-              </span>
+          <!-- 一、环境检测 -->
+          <div class="config-group">
+            <h3 class="config-group-title">环境检测</h3>
+
+            <!-- Docker -->
+            <div class="env-row">
+              <div class="env-row-left">
+                <span class="env-label">Docker</span>
+                <span class="env-status" :class="envData.docker_status">
+                  {{ envData.docker_status === 'running' ? '运行中' : envData.docker_status === 'not_running' ? '已安装未启动' : '未安装' }}
+                </span>
+              </div>
+              <div v-if="envData.docker_status === 'not_running'">
+                <button class="env-btn primary" @click="startDocker" :disabled="dockerStarting">
+                  {{ dockerStarting ? '启动中...' : '启动 Docker' }}
+                </button>
+              </div>
+              <div v-else-if="envData.docker_status === 'not_installed'">
+                <a href="https://www.docker.com/products/docker-desktop/" target="_blank" class="env-btn">下载 Docker Desktop</a>
+              </div>
             </div>
-            <p class="env-desc">当前: Python {{ envData.python_version }} ({{ envData.current_python }})</p>
+
+            <!-- Python 环境 -->
+            <div class="env-row">
+              <div class="env-row-left">
+                <span class="env-label">Python</span>
+                <span class="env-status" :class="envData.has_safe_cli_env ? 'running' : 'not_installed'">
+                  {{ envData.has_safe_cli_env ? 'safe-cli-agent 已就绪' : 'safe-cli-agent 未创建' }}
+                </span>
+              </div>
+              <div v-if="!envData.has_safe_cli_env">
+                <button class="env-btn primary" @click="handleCreateEnv" :disabled="envCreating">
+                  {{ envCreating ? '创建中...' : '创建环境' }}
+                </button>
+              </div>
+            </div>
+            <p class="env-hint">当前: Python {{ envData.python_version }} ({{ envData.current_python }})</p>
+
+            <!-- conda 创建日志 -->
+            <div v-if="envCreateLogs.length > 0" class="env-create-logs">
+              <div v-for="(log, i) in envCreateLogs" :key="i" class="env-log">{{ log }}</div>
+            </div>
 
             <!-- conda 环境列表 -->
             <div v-if="envData.conda_envs.length > 0" class="env-list">
@@ -90,115 +100,68 @@
                 <span class="env-item-path">{{ env.path }}</span>
               </div>
             </div>
-            <div v-else class="env-empty">
-              <span>未检测到 conda 环境</span>
-            </div>
 
-            <!-- 创建 safe-cli-agent 环境 -->
-            <div v-if="!envData.has_safe_cli_env" class="env-create">
-              <button class="env-btn primary" @click="handleCreateEnv" :disabled="envCreating">
-                {{ envCreating ? '创建中...' : '创建 safe-cli-agent 环境' }}
-              </button>
-              <div v-if="envCreateLogs.length > 0" class="env-create-logs">
-                <div v-for="(log, i) in envCreateLogs" :key="i" class="env-log">{{ log }}</div>
-              </div>
-            </div>
-
-            <!-- 手动指定 Python 路径 -->
+            <!-- 手动指定 -->
             <div class="env-manual">
-              <label>手动指定 Python 路径</label>
               <div class="env-manual-row">
-                <input v-model="manualPythonPath" type="text" class="form-input" placeholder="如 F:\anaconda3\envs\safe-cli-agent\python.exe" />
+                <input v-model="manualPythonPath" type="text" class="form-input" placeholder="手动指定 Python 路径（可选）" />
                 <button class="env-btn" @click="saveManualPython">保存</button>
               </div>
             </div>
           </div>
-        </div>
-      </div>
 
-      <!-- API 配置 Tab -->
-      <div v-show="activeTab === 'api'" class="tab-content">
-        <!-- 环境检测 -->
-        <div class="setup-checks">
-          <div class="check-item" :class="loading ? 'pending' : dockerClass">
-            <span class="check-icon">{{ loading ? '…' : dockerIcon }}</span>
-            <span>{{ loading ? '检测中...' : dockerLabel }}</span>
-          </div>
-          <div class="check-item" :class="loading ? 'pending' : (status.has_env ? 'ok' : 'fail')">
-            <span class="check-icon">{{ loading ? '…' : (status.has_env ? '✓' : '✕') }}</span>
-            <span>{{ loading ? '检测中...' : `.env ${status.has_env ? '已创建' : '未创建'}` }}</span>
-          </div>
-          <div class="check-item" :class="loading ? 'pending' : (status.configured ? 'ok' : 'pending')">
-            <span class="check-icon">{{ loading ? '…' : (status.configured ? '✓' : '○') }}</span>
-            <span>{{ loading ? '检测中...' : `API ${status.configured ? '已配置' : '待配置'}` }}</span>
-          </div>
-        </div>
+          <!-- 二、API 配置 -->
+          <div class="config-group">
+            <h3 class="config-group-title">API 配置</h3>
 
-        <!-- 配置表单 -->
-        <div class="setup-form">
-          <!-- Docker 提示 -->
-          <div v-if="!loading && status.docker_status === 'not_installed'" class="setup-warning">
-            <p>Docker 未安装。容器插件功能需要 Docker 支持。</p>
-            <a href="https://www.docker.com/products/docker-desktop/" target="_blank" class="docker-link">
-              下载 Docker Desktop →
-            </a>
-          </div>
-          <div v-else-if="!loading && status.docker_status === 'not_running'" class="setup-warning warn-yellow">
-            <p>Docker 已安装但未启动。请打开 Docker Desktop 启动服务。</p>
-          </div>
+            <!-- .env 状态 -->
+            <div class="env-row">
+              <div class="env-row-left">
+                <span class="env-label">.env 文件</span>
+                <span class="env-status" :class="status.has_env ? 'running' : 'not_installed'">
+                  {{ status.has_env ? '已创建' : '未创建' }}
+                </span>
+              </div>
+            </div>
 
-          <!-- 环境变量来源提示 -->
-          <div v-if="!loading && status.config_source === 'env'" class="setup-info">
-            <p>检测到系统环境变量已配置，无需重复填写。</p>
-          </div>
-          <div v-else-if="!loading && status.config_source === 'partial'" class="setup-warning warn-yellow">
-            <p>检测到部分配置，请补全以下必填项。</p>
-          </div>
-          <div class="form-group">
-            <label>API Key</label>
-            <input
-              v-model="form.api_key"
-              type="password"
-              :placeholder="status.api_key || 'sk-xxxxxxxxxx'"
-              class="form-input"
-            />
-            <span class="form-hint">
-              <template v-if="status.config_source === 'env'">已从系统环境变量读取（留空则保留）</template>
-              <template v-else>兼容 OpenAI 格式的 API Key（可选，留空则使用环境变量）</template>
-            </span>
+            <!-- 环境变量来源提示 -->
+            <div v-if="!loading && status.config_source === 'env'" class="setup-info">
+              <p>检测到系统环境变量已配置，无需重复填写。</p>
+            </div>
+
+            <div class="form-group">
+              <label>API Key</label>
+              <input v-model="form.api_key" type="password" :placeholder="status.api_key || 'sk-xxxxxxxxxx'" class="form-input" />
+              <span class="form-hint">
+                <template v-if="status.config_source === 'env'">已从系统环境变量读取（留空则保留）</template>
+                <template v-else>兼容 OpenAI 格式的 API Key（可选，留空则使用环境变量）</template>
+              </span>
+            </div>
+
+            <div class="form-group">
+              <label>Base URL <span class="required">*</span></label>
+              <input v-model="form.base_url" type="text" :placeholder="status.base_url || 'https://api.openai.com/v1'" class="form-input" />
+              <span class="form-hint">兼容 OpenAI 格式的 API 地址</span>
+            </div>
+
+            <div class="form-group">
+              <label>模型名称 <span class="required">*</span></label>
+              <input v-model="form.model" type="text" :placeholder="status.model || 'gpt-4o'" class="form-input" />
+              <span class="form-hint">如 gpt-4o、claude-sonnet-4-6、deepseek-chat 等</span>
+            </div>
+
+            <button class="setup-btn" @click="saveConfig" :disabled="saving">
+              {{ saving ? '保存中...' : '保存配置' }}
+            </button>
+
+            <p v-if="apiMessage" class="setup-message" :class="apiMessageType">{{ apiMessage }}</p>
           </div>
 
-          <div class="form-group">
-            <label>Base URL <span class="required">*</span></label>
-            <input
-              v-model="form.base_url"
-              type="text"
-              :placeholder="status.base_url || 'https://api.openai.com/v1'"
-              class="form-input"
-            />
-            <span class="form-hint">兼容 OpenAI 格式的 API 地址</span>
-          </div>
-
-          <div class="form-group">
-            <label>模型名称 <span class="required">*</span></label>
-            <input
-              v-model="form.model"
-              type="text"
-              :placeholder="status.model || 'gpt-4o'"
-              class="form-input"
-            />
-            <span class="form-hint">如 gpt-4o、claude-sonnet-4-6、deepseek-chat 等</span>
-          </div>
-
-          <button class="setup-btn" @click="saveConfig" :disabled="saving">
-            {{ saving ? '保存中...' : '保存配置' }}
-          </button>
-
-          <p v-if="apiMessage" class="setup-message" :class="apiMessageType">{{ apiMessage }}</p>
-
+          <!-- 进入主界面 -->
           <button class="skip-btn" @click="skipSetup">
             {{ status.configured ? '进入主界面' : '跳过，直接进入' }}
           </button>
+
         </div>
       </div>
 
@@ -295,14 +258,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { markConfigured } from '@/router'
 import api from '@/api/agent'
 import TitleBar from '@/components/TitleBar.vue'
 
 const router = useRouter()
-const activeTab = ref<'env' | 'api' | 'plugins' | 'market'>('env')
+const activeTab = ref<'config' | 'plugins' | 'market'>('config')
 const loading = ref(true)
 const restarting = ref(false)
 // 首次启动 = 未配置 = standalone（显示关闭按钮）；已配置 = 从设置进入（显示返回按钮）
@@ -431,35 +394,22 @@ const form = ref({
   model: '',
 })
 
-const dockerClass = computed(() => {
-  if (status.value.docker_status === 'running') return 'ok'
-  if (status.value.docker_status === 'not_running') return 'warn'
-  return 'fail'
-})
-
-const dockerIcon = computed(() => {
-  if (status.value.docker_status === 'running') return '✓'
-  if (status.value.docker_status === 'not_running') return '!'
-  return '✕'
-})
-
-const dockerLabel = computed(() => {
-  if (status.value.docker_status === 'running') return 'Docker 运行中'
-  if (status.value.docker_status === 'not_running') return 'Docker 未启动'
-  return 'Docker 未安装'
-})
-
 onMounted(async () => {
-  try {
-    const resp = await api.get('/setup/status')
-    status.value = resp.data
-    form.value.base_url = resp.data.base_url || ''
-    form.value.model = resp.data.model || ''
-    // 已配置 = 从设置按钮进入，非首次启动
-    isStandalone.value = !resp.data.configured
-  } catch {} finally {
-    loading.value = false
-  }
+  // 并行加载环境检测和 API 状态
+  await Promise.all([
+    loadEnvironments(),
+    (async () => {
+      try {
+        const resp = await api.get('/setup/status')
+        status.value = resp.data
+        form.value.base_url = resp.data.base_url || ''
+        form.value.model = resp.data.model || ''
+        isStandalone.value = !resp.data.configured
+      } catch {} finally {
+        loading.value = false
+      }
+    })(),
+  ])
 })
 
 async function saveConfig() {
@@ -982,56 +932,65 @@ async function savePluginConfig() {
   color: rgba(255, 255, 255, 0.8);
 }
 
-/* 环境配置 */
-.env-section {
+/* 环境与配置 */
+.config-section {
   width: 100%;
-  max-width: 560px;
+  max-width: 480px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 20px;
 }
 
-.env-block {
+.config-group {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 10px;
   padding: 16px;
 }
 
-.env-block-header {
+.config-group-title {
+  margin: 0 0 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.8);
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.env-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 6px;
+  padding: 6px 0;
 }
 
-.env-block-header h3 {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.85);
+.env-row-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.env-label {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.7);
+  min-width: 60px;
 }
 
 .env-status {
   font-size: 11px;
-  padding: 2px 10px;
-  border-radius: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
 }
 
 .env-status.running { background: rgba(103, 194, 58, 0.15); color: #67c23a; }
 .env-status.not_running { background: rgba(230, 162, 60, 0.15); color: #e6a23c; }
 .env-status.not_installed { background: rgba(245, 108, 108, 0.15); color: #f56c6c; }
 
-.env-desc {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.4);
-  margin: 0 0 10px;
-}
-
-.env-actions {
-  display: flex;
-  gap: 8px;
+.env-hint {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.3);
+  margin: 4px 0 0;
 }
 
 .env-btn {
