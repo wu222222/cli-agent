@@ -29,7 +29,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import api from '@/api/agent'
 import { useChatStore } from '@/stores/chat'
 
@@ -67,6 +67,11 @@ async function clearContext() {
   ctxStatus.value = { step: 0, policy: null, messages: [], summary_count: 0, total_count: 0 }
   expandedMsgs.value.clear()
 }
+
+// 组件挂载时加载一次上下文
+onMounted(() => {
+  fetchContext()
+})
 
 // 切换会话时清空 + 重新加载
 watch(() => chatStore.currentSessionId, () => {
