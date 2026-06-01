@@ -425,6 +425,7 @@ async function handleCancel(guidance: string = '') {
 function stopAgent() {
   disconnect()
   chatStore.isThinking = false
+  chatStore.clearPending()  // 清除待确认状态
   chatStore.pushMessage({
     role: 'system', content: '任务已被用户终止',
     timestamp: new Date().toLocaleTimeString(),

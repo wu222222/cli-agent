@@ -190,9 +190,15 @@ function handleReject() {
   line-height: 1.5;
   color: #409eff;
   overflow-x: auto;
+  overflow-y: auto;
+  max-height: 200px;
   white-space: pre-wrap;
   word-break: break-all;
 }
+
+.command-block::-webkit-scrollbar { width: 4px; height: 4px; }
+.command-block::-webkit-scrollbar-track { background: transparent; }
+.command-block::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); border-radius: 2px; }
 
 /* 引导输入 */
 .confirm-guidance {
