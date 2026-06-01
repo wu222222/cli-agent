@@ -340,18 +340,33 @@
 
     // 加载可用的 Python 路径
     async function loadPythonPaths() {
+      const pathList = document.getElementById('pathList');
+
       try {
         // 通过 IPC 让主进程检测
         if (electronAPI && electronAPI.detectPythonPaths) {
+          console.log('开始检测 Python 路径...');
           const paths = await electronAPI.detectPythonPaths();
-          renderPaths(paths);
+          console.log('检测结果:', paths);
+
+          if (paths && paths.length > 0) {
+            renderPaths(paths);
+          } else {
+            pathList.innerHTML = '<div class="empty-msg">未检测到 Python 环境，请手动输入路径</div>';
+          }
         } else {
           throw new Error('API 不可用');
         }
       } catch (err) {
         console.error('检测 Python 路径失败:', err);
-        document.getElementById('pathList').innerHTML =
-          '<div class="empty-msg">无法自动检测，请手动输入 Python 路径</div>';
+        pathList.innerHTML = `
+          <div class="empty-msg">
+            自动检测失败，请手动输入 Python 路径<br>
+            <small style="color: rgba(255,255,255,0.3); margin-top: 8px; display: block;">
+              提示: 可以使用 conda 环境中的 python.exe
+            </small>
+          </div>
+        `;
       }
     }
 

@@ -92,6 +92,8 @@ async function createWindow(): Promise<BrowserWindow> {
 // ── 创建 Python 配置窗口 ──────────────────────────────────
 
 async function createPythonSetupWindow(errorMessage: string): Promise<BrowserWindow> {
+  console.log('[Main] 创建 Python 配置窗口')
+
   const getIconPath = (): string => {
     const ext = process.platform === 'win32' ? '.ico' : '.png'
     if (app.isPackaged) {
@@ -102,16 +104,16 @@ async function createPythonSetupWindow(errorMessage: string): Promise<BrowserWin
 
   const setupWindow = new BrowserWindow({
     width: 700,
-    height: 600,
+    height: 650,
     resizable: false,
     title: 'Safe-CLI-Agent - Python 环境配置',
     icon: getIconPath(),
+    show: false, // 先隐藏，加载完成后显示
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
     },
-    show: false,
   })
 
   // 加载本地 HTML 文件
@@ -119,16 +121,21 @@ async function createPythonSetupWindow(errorMessage: string): Promise<BrowserWin
     ? path.join(process.resourcesPath, 'app.asar.unpacked', 'electron', 'resources', 'python-setup.html')
     : path.join(__dirname, '../resources/python-setup.html')
 
+  console.log('[Main] 加载配置界面:', htmlPath)
   await setupWindow.loadFile(htmlPath)
 
-  // 传递错误信息到渲染进程
+  // 等待页面完全加载后再发送错误信息
   setupWindow.webContents.on('did-finish-load', () => {
-    setupWindow.webContents.send('set-error-message', errorMessage)
+    console.log('[Main] 页面加载完成，发送错误信息')
+    // 延迟一点时间确保 preload 脚本已执行
+    setTimeout(() => {
+      setupWindow.webContents.send('set-error-message', errorMessage)
+    }, 500)
   })
 
-  setupWindow.once('ready-to-show', () => {
-    setupWindow.show()
-  })
+  // 直接显示窗口，不等待 ready-to-show
+  setupWindow.show()
+  setupWindow.focus()
 
   return setupWindow
 }
@@ -143,14 +150,22 @@ function registerIpcHandlers(): void {
 
   // 检测可用的 Python 路径
   ipcMain.handle('detect-python-paths', async () => {
+    console.log('[Main] 开始检测 Python 路径...')
     const { execSync } = require('child_process')
     const fs = require('fs')
     const paths: any[] = []
 
     // 1. Conda 环境
     try {
-      const condaOutput = execSync('conda env list --json', { encoding: 'utf-8', timeout: 10000 })
+      console.log('[Main] 检测 conda 环境...')
+      const condaOutput = execSync('conda env list --json', {
+        encoding: 'utf-8',
+        timeout: 8000,
+        stdio: ['ignore', 'pipe', 'ignore']
+      })
       const envData = JSON.parse(condaOutput)
+      console.log('[Main] 找到 conda 环境:', envData.envs?.length || 0)
+
       for (const envPath of envData.envs || []) {
         const envName = require('path').basename(envPath)
         const pythonExe = process.platform === 'win32'
@@ -159,7 +174,10 @@ function registerIpcHandlers(): void {
         if (fs.existsSync(pythonExe)) {
           let hasFastapi = false
           try {
-            execSync(`"${pythonExe}" -c "import fastapi"`, { stdio: 'ignore', timeout: 5000 })
+            execSync(`"${pythonExe}" -c "import fastapi"`, {
+              stdio: 'ignore',
+              timeout: 3000
+            })
             hasFastapi = true
           } catch {}
           paths.push({
@@ -168,18 +186,31 @@ function registerIpcHandlers(): void {
             has_fastapi: hasFastapi,
             recommended: envName === 'safe-cli-agent',
           })
+          console.log(`[Main] 发现环境: ${envName} - ${hasFastapi ? '有 fastapi' : '无 fastapi'}`)
         }
       }
-    } catch {}
+    } catch (err) {
+      console.warn('[Main] conda 检测失败:', err)
+    }
 
     // 2. 系统 Python
-    const sysPython = process.platform === 'win32' ? 'python' : 'python3'
     try {
-      const sysPath = execSync(`where ${sysPython}`, { encoding: 'utf-8', timeout: 5000 }).trim().split('\n')[0]
+      console.log('[Main] 检测系统 Python...')
+      const sysPython = process.platform === 'win32' ? 'python' : 'python3'
+      const whereCmd = process.platform === 'win32' ? 'where' : 'which'
+      const sysPath = execSync(`${whereCmd} ${sysPython}`, {
+        encoding: 'utf-8',
+        timeout: 5000,
+        stdio: ['ignore', 'pipe', 'ignore']
+      }).trim().split(/\r?\n/)[0]
+
       if (sysPath && fs.existsSync(sysPath)) {
         let hasFastapi = false
         try {
-          execSync(`"${sysPath}" -c "import fastapi"`, { stdio: 'ignore', timeout: 5000 })
+          execSync(`"${sysPath}" -c "import fastapi"`, {
+            stdio: 'ignore',
+            timeout: 3000
+          })
           hasFastapi = true
         } catch {}
         paths.push({
@@ -188,9 +219,13 @@ function registerIpcHandlers(): void {
           has_fastapi: hasFastapi,
           recommended: false,
         })
+        console.log(`[Main] 系统 Python: ${sysPath} - ${hasFastapi ? '有 fastapi' : '无 fastapi'}`)
       }
-    } catch {}
+    } catch (err) {
+      console.warn('[Main] 系统 Python 检测失败:', err)
+    }
 
+    console.log(`[Main] 检测完成，共找到 ${paths.length} 个 Python 环境`)
     return paths
   })
 
