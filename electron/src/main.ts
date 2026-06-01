@@ -153,41 +153,69 @@ function registerIpcHandlers(): void {
     console.log('[Main] 开始检测 Python 路径...')
     const { execSync } = require('child_process')
     const fs = require('fs')
+    const pathModule = require('path')
     const paths: any[] = []
 
     // 1. Conda 环境
     try {
       console.log('[Main] 检测 conda 环境...')
-      const condaOutput = execSync('conda env list --json', {
-        encoding: 'utf-8',
-        timeout: 8000,
-        stdio: ['ignore', 'pipe', 'ignore']
-      })
-      const envData = JSON.parse(condaOutput)
-      console.log('[Main] 找到 conda 环境:', envData.envs?.length || 0)
 
-      for (const envPath of envData.envs || []) {
-        const envName = require('path').basename(envPath)
-        const pythonExe = process.platform === 'win32'
-          ? `${envPath}\\python.exe`
-          : `${envPath}/bin/python`
-        if (fs.existsSync(pythonExe)) {
-          let hasFastapi = false
-          try {
-            execSync(`"${pythonExe}" -c "import fastapi"`, {
-              stdio: 'ignore',
-              timeout: 3000
-            })
-            hasFastapi = true
-          } catch {}
-          paths.push({
-            path: pythonExe,
-            source: `conda (${envName})`,
-            has_fastapi: hasFastapi,
-            recommended: envName === 'safe-cli-agent',
+      // 尝试多个可能的 conda 路径
+      const condaPaths = [
+        'conda',
+        `${process.env.USERPROFILE || ''}\\anaconda3\\Scripts\\conda.exe`,
+        `${process.env.USERPROFILE || ''}\\miniconda3\\Scripts\\conda.exe`,
+        `${process.env.ProgramData || ''}\\anaconda3\\Scripts\\conda.exe`,
+        `${process.env.ProgramData || ''}\\miniconda3\\Scripts\\conda.exe`,
+      ]
+
+      let condaOutput = ''
+      let condaFound = false
+
+      for (const condaCmd of condaPaths) {
+        try {
+          condaOutput = execSync(`"${condaCmd}" env list --json`, {
+            encoding: 'utf-8',
+            timeout: 8000,
+            stdio: ['ignore', 'pipe', 'ignore']
           })
-          console.log(`[Main] 发现环境: ${envName} - ${hasFastapi ? '有 fastapi' : '无 fastapi'}`)
+          condaFound = true
+          console.log(`[Main] 使用 conda: ${condaCmd}`)
+          break
+        } catch {
+          continue
         }
+      }
+
+      if (condaFound && condaOutput) {
+        const envData = JSON.parse(condaOutput)
+        console.log('[Main] 找到 conda 环境:', envData.envs?.length || 0)
+
+        for (const envPath of envData.envs || []) {
+          const envName = pathModule.basename(envPath)
+          const pythonExe = process.platform === 'win32'
+            ? `${envPath}\\python.exe`
+            : `${envPath}/bin/python`
+          if (fs.existsSync(pythonExe)) {
+            let hasFastapi = false
+            try {
+              execSync(`"${pythonExe}" -c "import fastapi"`, {
+                stdio: 'ignore',
+                timeout: 3000
+              })
+              hasFastapi = true
+            } catch {}
+            paths.push({
+              path: pythonExe,
+              source: `conda (${envName})`,
+              has_fastapi: hasFastapi,
+              recommended: envName === 'safe-cli-agent',
+            })
+            console.log(`[Main] 发现环境: ${envName} - ${hasFastapi ? '有 fastapi' : '无 fastapi'}`)
+          }
+        }
+      } else {
+        console.warn('[Main] conda 未找到')
       }
     } catch (err) {
       console.warn('[Main] conda 检测失败:', err)
@@ -223,6 +251,32 @@ function registerIpcHandlers(): void {
       }
     } catch (err) {
       console.warn('[Main] 系统 Python 检测失败:', err)
+    }
+
+    // 3. 常见路径检查
+    const commonPaths = [
+      `${process.env.USERPROFILE || ''}\\anaconda3\\envs\\safe-cli-agent\\python.exe`,
+      `${process.env.USERPROFILE || ''}\\miniconda3\\envs\\safe-cli-agent\\python.exe`,
+    ]
+
+    for (const pythonPath of commonPaths) {
+      if (fs.existsSync(pythonPath) && !paths.find(p => p.path === pythonPath)) {
+        let hasFastapi = false
+        try {
+          execSync(`"${pythonPath}" -c "import fastapi"`, {
+            stdio: 'ignore',
+            timeout: 3000
+          })
+          hasFastapi = true
+        } catch {}
+        paths.push({
+          path: pythonPath,
+          source: '常见路径',
+          has_fastapi: hasFastapi,
+          recommended: true,
+        })
+        console.log(`[Main] 常见路径: ${pythonPath} - ${hasFastapi ? '有 fastapi' : '无 fastapi'}`)
+      }
     }
 
     console.log(`[Main] 检测完成，共找到 ${paths.length} 个 Python 环境`)

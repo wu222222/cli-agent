@@ -313,21 +313,37 @@
 
   <script>
     // 使用 preload 暴露的 API
-    const { electronAPI } = window;
     let selectedPath = '';
+    let electronAPI = null;
 
     // 初始化
     async function init() {
+      console.log('初始化配置界面...');
+
+      // 获取 electronAPI
+      electronAPI = window.electronAPI;
+      console.log('electronAPI:', electronAPI ? '可用' : '不可用');
+
+      // 如果 electronAPI 不可用，显示错误
+      if (!electronAPI) {
+        document.getElementById('errorMessage').textContent = '无法加载 Electron API，请重启应用';
+        document.getElementById('pathList').innerHTML = '<div class="empty-msg">API 加载失败</div>';
+        return;
+      }
+
       // 监听错误信息
-      if (electronAPI && electronAPI.onSetErrorMessage) {
+      if (electronAPI.onSetErrorMessage) {
+        console.log('注册错误信息监听...');
         electronAPI.onSetErrorMessage((message) => {
+          console.log('收到错误信息:', message);
           document.getElementById('errorMessage').textContent = message || '无法启动 Python 服务';
         });
       }
 
       // 监听文件选择结果
-      if (electronAPI && electronAPI.onPythonPathSelected) {
+      if (electronAPI.onPythonPathSelected) {
         electronAPI.onPythonPathSelected((path) => {
+          console.log('选择的路径:', path);
           if (path) {
             selectPath(path, null);
           }
@@ -346,24 +362,32 @@
         // 通过 IPC 让主进程检测
         if (electronAPI && electronAPI.detectPythonPaths) {
           console.log('开始检测 Python 路径...');
-          const paths = await electronAPI.detectPythonPaths();
-          console.log('检测结果:', paths);
 
-          if (paths && paths.length > 0) {
+          // 设置超时
+          const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('检测超时')), 15000);
+          });
+
+          const pathsPromise = electronAPI.detectPythonPaths();
+          const paths = await Promise.race([pathsPromise, timeoutPromise]);
+
+          console.log('检测结果:', JSON.stringify(paths));
+
+          if (paths && Array.isArray(paths) && paths.length > 0) {
             renderPaths(paths);
           } else {
             pathList.innerHTML = '<div class="empty-msg">未检测到 Python 环境，请手动输入路径</div>';
           }
         } else {
-          throw new Error('API 不可用');
+          throw new Error('detectPythonPaths API 不可用');
         }
       } catch (err) {
-        console.error('检测 Python 路径失败:', err);
+        console.error('检测 Python 路径失败:', err.message || err);
         pathList.innerHTML = `
           <div class="empty-msg">
-            自动检测失败，请手动输入 Python 路径<br>
+            自动检测失败: ${err.message || '未知错误'}<br>
             <small style="color: rgba(255,255,255,0.3); margin-top: 8px; display: block;">
-              提示: 可以使用 conda 环境中的 python.exe
+              请手动输入 Python 路径
             </small>
           </div>
         `;
@@ -468,8 +492,12 @@
 
     // 退出应用
     function exitApp() {
+      console.log('点击退出按钮');
       if (electronAPI && electronAPI.quitApp) {
         electronAPI.quitApp();
+      } else {
+        // 备用方案：直接关闭窗口
+        window.close();
       }
     }
 
