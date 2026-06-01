@@ -314,14 +314,13 @@
   <script>
     // 使用 preload 暴露的 API
     let selectedPath = '';
-    let electronAPI = null;
 
     // 初始化
     async function init() {
       console.log('初始化配置界面...');
 
       // 获取 electronAPI
-      electronAPI = window.electronAPI;
+      const electronAPI = window.electronAPI;
       console.log('electronAPI:', electronAPI ? '可用' : '不可用');
 
       // 如果 electronAPI 不可用，显示错误
@@ -357,10 +356,11 @@
     // 加载可用的 Python 路径
     async function loadPythonPaths() {
       const pathList = document.getElementById('pathList');
+      const api = window.electronAPI;
 
       try {
         // 通过 IPC 让主进程检测
-        if (electronAPI && electronAPI.detectPythonPaths) {
+        if (api && api.detectPythonPaths) {
           console.log('开始检测 Python 路径...');
 
           // 设置超时
@@ -368,7 +368,7 @@
             setTimeout(() => reject(new Error('检测超时')), 15000);
           });
 
-          const pathsPromise = electronAPI.detectPythonPaths();
+          const pathsPromise = api.detectPythonPaths();
           const paths = await Promise.race([pathsPromise, timeoutPromise]);
 
           console.log('检测结果:', JSON.stringify(paths));
@@ -450,13 +450,15 @@
 
     // 浏览文件
     function browsePath() {
-      if (electronAPI && electronAPI.browsePythonPath) {
-        electronAPI.browsePythonPath();
+      const api = window.electronAPI;
+      if (api && api.browsePythonPath) {
+        api.browsePythonPath();
       }
     }
 
     // 保存配置
     async function saveConfig() {
+      const api = window.electronAPI;
       const path = document.getElementById('manualPath').value.trim() || selectedPath;
       if (!path) {
         alert('请选择或输入 Python 路径');
@@ -469,8 +471,8 @@
 
       try {
         // 保存路径
-        if (electronAPI && electronAPI.savePythonPath) {
-          electronAPI.savePythonPath(path);
+        if (api && api.savePythonPath) {
+          api.savePythonPath(path);
         }
 
         // 显示成功消息
@@ -479,8 +481,8 @@
 
         // 1.5 秒后重启
         setTimeout(() => {
-          if (electronAPI && electronAPI.restartPython) {
-            electronAPI.restartPython();
+          if (api && api.restartPython) {
+            api.restartPython();
           }
         }, 1500);
       } catch (err) {
@@ -493,8 +495,9 @@
     // 退出应用
     function exitApp() {
       console.log('点击退出按钮');
-      if (electronAPI && electronAPI.quitApp) {
-        electronAPI.quitApp();
+      const api = window.electronAPI;
+      if (api && api.quitApp) {
+        api.quitApp();
       } else {
         // 备用方案：直接关闭窗口
         window.close();
