@@ -1,6 +1,6 @@
 import os
 from dataclasses import dataclass, field
-from typing import Optional
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -8,7 +8,7 @@ load_dotenv()
 
 @dataclass
 class LLMConfig:
-    api_key: Optional[str] = field(default_factory=lambda: os.getenv("DASHSCOPE_API_KEY", None))
+    api_key: str | None = field(default_factory=lambda: os.getenv("DASHSCOPE_API_KEY", None))
     base_url: str = field(default_factory=lambda: os.getenv("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"))
     model: str = field(default_factory=lambda: os.getenv("LLM_MODEL", None))
     temperature: float = 0.3

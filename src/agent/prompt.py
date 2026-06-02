@@ -1,7 +1,5 @@
-from typing import Dict, Any, List, Type, Optional
-from pydantic import BaseModel
-from .types import ActionType, ACTION_SCHEMA_MAP
-from .tools import Tool, ExecContainerPlugin
+from .types import ACTION_SCHEMA_MAP, ActionType
+
 
 class PromptManager:
     """Prompt管理器，支持动态 Schema 生成和多角色切换"""
@@ -38,23 +36,23 @@ JSON 格式规范：
 如果需要换行,必须使用 \\n 代替物理换换行
 '''
 
-    def _generate_action_docs(self, allowed_actions: List[ActionType]) -> str:
+    def _generate_action_docs(self, allowed_actions: list[ActionType]) -> str:
         """从 Pydantic 模型动态生成 Action 说明文档"""
         docs = []
         for action_type in allowed_actions:
             schema_class = ACTION_SCHEMA_MAP.get(action_type)
             if not schema_class:
                 continue
-            
+
             schema_json = schema_class.model_json_schema()
             properties = schema_json.get("properties", {})
             required = schema_json.get("required", [])
-            
+
             doc = f"### {action_type.value}\n"
             doc += f"参数要求: {properties}\n"
             doc += f"必填项: {required}\n"
             docs.append(doc)
-        
+
         return "\n".join(docs)
 
     def _build_worker_prompt(self, tool_registry=None, tool_names: list = None) -> str:
@@ -68,7 +66,7 @@ JSON 格式规范：
             print(f"[PromptManager] 使用 tool_names 过滤: {tool_names}")
         elif tool_registry:
             plugin_docs = self._generate_plugin_docs(tool_registry)
-            print(f"[PromptManager] 使用全部工具（未指定 tool_names）")
+            print("[PromptManager] 使用全部工具（未指定 tool_names）")
 
         # 注入 compose 环境说明
         compose_env = ""
@@ -87,11 +85,9 @@ JSON 格式规范：
         judge_note = ""
         if has_judge:
             judge_note = "\n- 在 stop 之前，强烈建议调用 call_judge 评审结果是否合理。"
-        elif tool_names is None:
+        elif tool_names is None and tool_registry and tool_registry.get_tool("call_judge"):
             # 未限制工具列表时，call_judge 默认可用
-            # 检查 registry 中是否有 call_judge
-            if tool_registry and tool_registry.get_tool("call_judge"):
-                judge_note = "\n- 在 stop 之前，强烈建议调用 call_judge 评审结果是否合理。"
+            judge_note = "\n- 在 stop 之前，强烈建议调用 call_judge 评审结果是否合理。"
 
         prompt = f"""你是一个智能命令行助手，具备自我推理和工具调用能力。
 
@@ -240,7 +236,7 @@ JSON 格式规范：
 **必填**。请在 tool_name 字段指定具体工具。
 可选值: {', '.join(names)}"""
 
-        return f"""你是一个高级知识管理专家（Knowledge Curator），负责维护系统的长期记忆。
+        return rf"""你是一个高级知识管理专家（Knowledge Curator），负责维护系统的长期记忆。
 你的任务是：分析 Worker 的执行历史，提取有价值的"经验-教训"，并以原子化的方式更新到知识库（KB）中。
 
 {plugin_docs}

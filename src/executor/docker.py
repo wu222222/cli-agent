@@ -1,10 +1,11 @@
-import docker
-import time
 import os
-from typing import Dict, Any, Optional, Tuple
 from dataclasses import dataclass
+from typing import Any
+
+import docker
 
 from src.logger import get_logger
+
 from .client import DockerClientFactory
 
 logger = get_logger(__name__)
@@ -14,9 +15,9 @@ logger = get_logger(__name__)
 class DockerConfig:
     # 基础镜像配置
     image: str = "alpine:latest"
-    container_name: Optional[str] = None
+    container_name: str | None = None
     network: str = "none"
-    cpu_quota: int = 100000 
+    cpu_quota: int = 100000
     memory_limit: str = "512m"
     timeout: int = 30
 
@@ -34,11 +35,11 @@ class DockerConfig:
 
     # 运行时目录配置
     # 如果不指定，则使用镜像默认工作目录；如果指定，启动时会切换到这里
-    working_dir: Optional[str] = None
+    working_dir: str | None = None
 
 
 class DockerExecutor:
-    def __init__(self, config: Optional[DockerConfig] = None):
+    def __init__(self, config: DockerConfig | None = None):
         self.config = config or DockerConfig()
         self.client = None
         self.container = None
@@ -84,7 +85,7 @@ class DockerExecutor:
                     "bind": f"/{self.config.workspace_name}",
                     "mode": self.config.workspace_mode # 使用配置的 mode
                 }
-            
+
             # 2. 处理知识库挂载
             if self.config.use_knowledge_base:
                 #检测知识库是否存在，不存在则报错
@@ -112,20 +113,19 @@ class DockerExecutor:
                 working_dir=self.config.working_dir,
                 command="sh -c 'tail -f /dev/null'"
             )
-            
+
             logger.info(f"容器启动成功: {self.container.name} (Image: {self.config.image})")
             return True
         except Exception as e:
             logger.error(f"容器启动失败: {e}")
             return False
 
-    def execute_command(self, command: str, timeout: Optional[int] = None) -> Tuple[str, str, int]:
+    def execute_command(self, command: str, timeout: int | None = None) -> tuple[str, str, int]:
         if not self.is_available():
             return "", "Docker 不可用", 1
 
-        if not self.container:
-            if not self.start_container():
-                return "", "容器启动失败", 1
+        if not self.container and not self.start_container():
+            return "", "容器启动失败", 1
 
         try:
             exec_timeout = timeout or self.config.timeout
@@ -200,7 +200,7 @@ class PluginContainerManager:
 
     def __init__(self):
         self.client = None
-        self._containers: Dict[str, Any] = {}
+        self._containers: dict[str, Any] = {}
         try:
             self.client = DockerClientFactory.get()
         except Exception as e:
@@ -209,7 +209,7 @@ class PluginContainerManager:
     def is_available(self) -> bool:
         return self.client is not None
 
-    def ensure_running(self, container_name: str, image: str = "", volumes: Optional[Dict[str, Dict[str, str]]] = None, network_mode: str = "none", privileged: bool = False) -> bool:
+    def ensure_running(self, container_name: str, image: str = "", volumes: dict[str, dict[str, str]] | None = None, network_mode: str = "none", privileged: bool = False) -> bool:
         """确保插件容器在后台运行
 
         Args:

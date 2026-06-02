@@ -1,16 +1,16 @@
 import asyncio
 import logging
-from typing import Optional, Dict, Any, Callable, Awaitable
+from collections.abc import Callable
+from typing import Any
 
 logger = logging.getLogger("streaming")
 TOOL_CALL_TIMEOUT = 60  # 工具调用整体超时（秒）
 
-from src.agent import WorkerAgent, CuratorAgent
+from src.agent import CuratorAgent, WorkerAgent
 from src.agent.types import ActionType
 
-
 # SSE 事件队列: request_id -> asyncio.Queue
-_sse_queues: Dict[str, asyncio.Queue] = {}
+_sse_queues: dict[str, asyncio.Queue] = {}
 
 
 def create_queue(request_id: str) -> asyncio.Queue:
@@ -19,7 +19,7 @@ def create_queue(request_id: str) -> asyncio.Queue:
     return queue
 
 
-def get_queue(request_id: str) -> Optional[asyncio.Queue]:
+def get_queue(request_id: str) -> asyncio.Queue | None:
     return _sse_queues.get(request_id)
 
 
@@ -31,14 +31,14 @@ def _make_emit_callbacks(request_id: str, tool_registry=None):
     """创建 SSE 事件发射回调函数，使用工具自描述格式化"""
 
     # 缓存每次工具调用的参数，供 tool_result 事件附带
-    _last_params: Dict[str, Any] = {}
+    _last_params: dict[str, Any] = {}
 
     def _get_tool(tool_name: str):
         if tool_registry:
             return tool_registry.get_tool(tool_name)
         return None
 
-    def _extract_command(tool_name: str, params: Dict[str, Any]) -> str:
+    def _extract_command(tool_name: str, params: dict[str, Any]) -> str:
         """提取工具调用的关键参数用于展示"""
         if not params:
             return ""
@@ -54,7 +54,7 @@ def _make_emit_callbacks(request_id: str, tool_registry=None):
             parts.append(f"{k}: {val}")
         return ", ".join(parts)
 
-    async def emit_tool_start(agent_name: str, tool_name: str, params: Dict[str, Any]):
+    async def emit_tool_start(agent_name: str, tool_name: str, params: dict[str, Any]):
         nonlocal _last_params
         _last_params = dict(params)
         queue = get_queue(request_id)
@@ -112,11 +112,11 @@ def _make_emit_callbacks(request_id: str, tool_registry=None):
 
 class StreamingWorkerAgent(WorkerAgent):
     """支持实时回调工具执行结果的 WorkerAgent"""
-    on_tool_start: Optional[Callable] = None
-    on_tool_result: Optional[Callable] = None
-    on_thought: Optional[Callable] = None
+    on_tool_start: Callable | None = None
+    on_tool_result: Callable | None = None
+    on_thought: Callable | None = None
 
-    async def _execute_action(self, action_type: ActionType, action_params: Dict[str, Any], tool_name: str = None) -> str:
+    async def _execute_action(self, action_type: ActionType, action_params: dict[str, Any], tool_name: str = None) -> str:
         exec_name = tool_name or action_type.value
         # 使用工具自描述的 display_name（如 call_judge → "JudgeAgent"），fallback 到 self.name
         tool = self.tools.get_tool(exec_name) if self.tools else None
@@ -156,11 +156,11 @@ class StreamingWorkerAgent(WorkerAgent):
 
 class StreamingCuratorAgent(CuratorAgent):
     """支持实时回调工具执行结果的 CuratorAgent"""
-    on_tool_start: Optional[Callable] = None
-    on_tool_result: Optional[Callable] = None
-    on_thought: Optional[Callable] = None
+    on_tool_start: Callable | None = None
+    on_tool_result: Callable | None = None
+    on_thought: Callable | None = None
 
-    async def _execute_action(self, action_type: ActionType, action_params: Dict[str, Any], tool_name: str = None) -> str:
+    async def _execute_action(self, action_type: ActionType, action_params: dict[str, Any], tool_name: str = None) -> str:
         exec_name = tool_name or action_type.value
 
         # 发送 thought

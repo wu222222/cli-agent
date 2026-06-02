@@ -7,6 +7,7 @@ target-version = "py310"
 # Line length
 line-length = 120
 
+[lint]
 # Enable rules
 select = [
     "E",    # pycodestyle errors
@@ -25,6 +26,13 @@ ignore = [
     "E501",   # line too long (handled by formatter)
     "B008",   # do not perform function calls in argument defaults
     "SIM108", # use ternary operator (reduces readability)
+    "F403",   # wildcard imports (used in agent module)
+    "F405",   # may be undefined from wildcard imports
+    "E402",   # module level import not at top (needed for some patterns)
+    "RUF001", # ambiguous unicode character in string (Chinese punctuation)
+    "RUF002", # ambiguous unicode character in docstring
+    "RUF003", # ambiguous unicode character in comment
+    "RUF013", # implicit Optional (Python 3.10+ supports X | None)
 ]
 
 # Per-file rules

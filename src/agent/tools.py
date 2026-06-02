@@ -1,12 +1,14 @@
-from typing import Dict, Any, Callable, Optional, List, Union, Awaitable, Type
-from pydantic import BaseModel, Field, ValidationError
-import json
-import shlex
 import inspect
-import os
+import json
 import logging
+import os
+import shlex
+from collections.abc import Awaitable, Callable
+from typing import Any, Optional
 
-from .types import ActionType, ValidationError as PydanticValidationError
+from pydantic import BaseModel, Field, ValidationError
+
+from .types import ActionType
 
 logger = logging.getLogger("tools")
 
@@ -28,9 +30,9 @@ class Tool(BaseModel):
     requires_confirmation: bool = False
 
     # === 工具 Schema（给 LLM 看） ===
-    parameters: Dict[str, Any] = Field(default_factory=dict)
-    required_params: List[str] = Field(default_factory=list)
-    param_schema: Optional[Type[BaseModel]] = None
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    required_params: list[str] = Field(default_factory=list)
+    param_schema: type[BaseModel] | None = None
 
     # === 前端展示（从 YAML 缓存） ===
     category: str = "other"
@@ -41,19 +43,19 @@ class Tool(BaseModel):
     # === Docker 执行 ===
     container_name: str = ""
     entrypoint_cmd: str = "sh -c"
-    mount_dirs: List[str] = Field(default_factory=list)
+    mount_dirs: list[str] = Field(default_factory=list)
     network_mode: str = "none"          # "none"=断网（默认安全）, "bridge"=NAT联网
     privileged: bool = False            # True=特权模式（nmap等需要raw socket的工具）
     timeout_seconds: int = 30           # 命令执行超时（秒），nmap 等慢工具设为更大值
 
     # === 扩展钩子（方案 C 填充实现） ===
-    _on_register: Optional[Callable] = None     # async (tool, registry, manager) -> None
-    _on_unregister: Optional[Callable] = None   # async (tool, registry) -> None
+    _on_register: Callable | None = None     # async (tool, registry, manager) -> None
+    _on_unregister: Callable | None = None   # async (tool, registry) -> None
 
     class Config:
         arbitrary_types_allowed = True
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "type": "function",
             "function": {
@@ -72,17 +74,17 @@ class Tool(BaseModel):
         """command 类型插件不暴露给 LLM function-calling"""
         return self.plugin_type == "command"
 
-    def validate_params(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_params(self, params: dict[str, Any]) -> dict[str, Any]:
         if not self.param_schema:
             return params
         try:
             validated = self.param_schema.model_validate(params)
             return validated.model_dump()
-        except (ValidationError, PydanticValidationError) as e:
+        except ValidationError as e:
             logger.warning(f"工具 '{self.name}' 参数校验失败: {e}")
             return params
 
-    def format_start(self, params: Dict[str, Any]) -> str:
+    def format_start(self, params: dict[str, Any]) -> str:
         return f"正在执行: {self.name}"
 
     def format_result(self, raw_content: str) -> str:
@@ -96,7 +98,7 @@ class Tool(BaseModel):
 
 class LocalTool(Tool):
     plugin_type: str = "local"
-    handler: Optional[Union[Callable[..., Any], Callable[..., Awaitable[Any]]]] = None
+    handler: Callable[..., Any] | Callable[..., Awaitable[Any]] | None = None
 
     async def run(self, **params) -> str:
         if not self.handler:
@@ -109,7 +111,7 @@ class LocalTool(Tool):
             return str(result)
         except Exception as e:
             logger.error(f"LocalTool '{self.name}' 执行异常: {e}")
-            return f"错误: 执行异常 - {str(e)}"
+            return f"错误: 执行异常 - {e!s}"
 
 
 # --- Type 2: Exec 容器插件 ---
@@ -118,7 +120,7 @@ class ExecContainerPlugin(Tool):
     plugin_type: str = "exec"
     container_name: str = ""
     entrypoint_cmd: str = "sh -c"
-    mount_dirs: List[str] = Field(default_factory=list)  # 挂载目录列表
+    mount_dirs: list[str] = Field(default_factory=list)  # 挂载目录列表
     default_command: str = ""  # command 插件的默认命令
     _container: Any = None
 
@@ -128,7 +130,7 @@ class ExecContainerPlugin(Tool):
     def bind_container(self, container) -> None:
         self._container = container
 
-    def format_start(self, params: Dict[str, Any]) -> str:
+    def format_start(self, params: dict[str, Any]) -> str:
         cmd = params.get('command', '')
         if cmd:
             return f"正在执行命令: {cmd}"
@@ -183,7 +185,7 @@ class ExecContainerPlugin(Tool):
 
         except Exception as e:
             logger.error(f"ExecContainerPlugin '{self.name}' 执行异常: {e}")
-            return f"错误: 容器执行异常 - {str(e)}"
+            return f"错误: 容器执行异常 - {e!s}"
 
 
 # --- Type 3: Network 容器插件（预留） ---
@@ -191,13 +193,13 @@ class ExecContainerPlugin(Tool):
 class NetworkContainerPlugin(Tool):
     plugin_type: str = "network"
     endpoint_url: str = ""
-    port_bindings: Dict[int, int] = Field(default_factory=dict)
+    port_bindings: dict[int, int] = Field(default_factory=dict)
 
-    def format_start(self, params: Dict[str, Any]) -> str:
+    def format_start(self, params: dict[str, Any]) -> str:
         return f"正在调用网络服务: {self.name} ({self.endpoint_url})"
 
     async def run(self, **params) -> str:
-        return f"错误: NetworkContainerPlugin 尚未实现"
+        return "错误: NetworkContainerPlugin 尚未实现"
 
 
 # --- Compose 组插件 ---
@@ -210,7 +212,7 @@ class ComposePlugin:
         name: str,
         description: str,
         compose_file: str,
-        children_config: List[Dict[str, Any]],
+        children_config: list[dict[str, Any]],
         category: str = "other",
         icon: str = "default",
     ):
@@ -221,11 +223,12 @@ class ComposePlugin:
         self.category = category
         self.icon = icon
         self.running: bool = False
-        self._registered_children: Dict[str, Tool] = {}  # tool_name -> Tool
+        self._registered_children: dict[str, Tool] = {}  # tool_name -> Tool
 
     async def up(self) -> tuple[bool, str]:
         """docker compose up -d --build"""
-        import subprocess, os
+        import os
+        import subprocess
         compose_dir = os.path.dirname(os.path.abspath(self.compose_file))
         compose_file = os.path.join(compose_dir, os.path.basename(self.compose_file))
         if not os.path.exists(compose_file):
@@ -246,7 +249,8 @@ class ComposePlugin:
 
     async def down(self, volumes: bool = False) -> tuple[bool, str]:
         """docker compose down [-v]"""
-        import subprocess, os
+        import os
+        import subprocess
         compose_dir = os.path.dirname(os.path.abspath(self.compose_file))
         compose_file = os.path.join(compose_dir, os.path.basename(self.compose_file))
         cmd = ["docker", "compose", "-p", self.name, "-f", compose_file, "down"]
@@ -272,7 +276,7 @@ class ComposePlugin:
             return False, f"down 失败: {msg}"
         return await self.up()
 
-    def bind_children(self, docker_client, tool_registry: 'ToolRegistry') -> List[str]:
+    def bind_children(self, docker_client, tool_registry: 'ToolRegistry') -> list[str]:
         """将子容器绑定为 Tool 并注册到 ToolRegistry，返回注册的工具名列表"""
         import docker.errors
         registered = []
@@ -385,8 +389,8 @@ def _format_shell_output(raw_content: str) -> str:
 
 class ToolRegistry:
     def __init__(self):
-        self._tools: Dict[str, Tool] = {}
-        self._compose_plugins: Dict[str, ComposePlugin] = {}
+        self._tools: dict[str, Tool] = {}
+        self._compose_plugins: dict[str, ComposePlugin] = {}
 
     def register(self, tool: Tool) -> None:
         self._tools[tool.name] = tool
@@ -394,26 +398,26 @@ class ToolRegistry:
     def unregister(self, name: str) -> None:
         self._tools.pop(name, None)
 
-    def get_tool(self, name: str) -> Optional[Tool]:
+    def get_tool(self, name: str) -> Tool | None:
         # 大小写不敏感查找
         tool = self._tools.get(name)
         if tool:
             return tool
         return self._tools.get(name.lower())
 
-    def list_tools(self) -> List[str]:
+    def list_tools(self) -> list[str]:
         return list(self._tools.keys())
 
-    def get_all_tools(self) -> List[Dict[str, Any]]:
+    def get_all_tools(self) -> list[dict[str, Any]]:
         return [tool.to_dict() for tool in self._tools.values()]
 
-    def resolve_action(self, tool_name: str) -> Optional[ActionType]:
+    def resolve_action(self, tool_name: str) -> ActionType | None:
         tool = self.get_tool(tool_name)
         if tool:
             return tool.bound_action
         return None
 
-    def get_tools_by_type(self, plugin_type: str) -> List[Tool]:
+    def get_tools_by_type(self, plugin_type: str) -> list[Tool]:
         return [t for t in self._tools.values() if getattr(t, 'plugin_type', '') == plugin_type]
 
     def register_compose(self, compose: 'ComposePlugin') -> None:
@@ -422,7 +426,7 @@ class ToolRegistry:
     def get_compose(self, name: str) -> Optional['ComposePlugin']:
         return self._compose_plugins.get(name)
 
-    def list_compose(self) -> List[str]:
+    def list_compose(self) -> list[str]:
         return list(self._compose_plugins.keys())
 
     def load_from_yaml(self, path: str, docker_client=None, base_dir: str = None) -> None:
@@ -436,7 +440,7 @@ class ToolRegistry:
             logger.error("需要安装 pyyaml: pip install pyyaml")
             return
 
-        with open(path, 'r', encoding='utf-8') as f:
+        with open(path, encoding='utf-8') as f:
             config = yaml.safe_load(f)
 
         for plugin_cfg in config.get('plugins', []):
@@ -463,7 +467,7 @@ class ToolRegistry:
                 logger.info(f"从目录加载插件: {entry}")
         return loaded
 
-    def _load_plugin(self, cfg: Dict[str, Any], docker_client=None) -> None:
+    def _load_plugin(self, cfg: dict[str, Any], docker_client=None) -> None:
         plugin_type = cfg.get('type', 'local')
         name = cfg.get('name', '')
         description = cfg.get('description', '')
@@ -553,7 +557,7 @@ class ToolRegistry:
         elif plugin_type == 'compose':
             compose_file = cfg.get('compose_file', '')
             # 兼容新旧字段名: services（新）优先，plugins（旧）fallback
-            children = cfg.get('services', None)
+            children = cfg.get('services')
             if children is None:
                 children = cfg.get('plugins', [])
                 if children:
@@ -610,7 +614,7 @@ class ToolRegistry:
         else:
             logger.warning(f"未知插件类型: {plugin_type} ({name})")
 
-    async def run(self, name: str, params: Dict[str, Any]) -> str:
+    async def run(self, name: str, params: dict[str, Any]) -> str:
         tool = self.get_tool(name)
         if not tool:
             return f"错误: 未找到工具 '{name}'"

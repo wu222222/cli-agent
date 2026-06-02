@@ -1,18 +1,21 @@
-from typing import Optional, List, Dict, Any, AsyncGenerator
-from openai import OpenAI, AsyncOpenAI
-from .config import LLMConfig
-from .retry import retry_sync, retry_async
+from collections.abc import AsyncGenerator
+from typing import Any
+
+from openai import AsyncOpenAI, OpenAI
 
 from src.logger import get_logger
+
+from .config import LLMConfig
+from .retry import retry_async, retry_sync
 
 logger = get_logger(__name__)
 
 
 class LLMClient:
-    def __init__(self, config: Optional[LLMConfig] = None):
+    def __init__(self, config: LLMConfig | None = None):
         self.config = config or LLMConfig.from_env()
-        self._sync_client: Optional[OpenAI] = None
-        self._async_client: Optional[AsyncOpenAI] = None
+        self._sync_client: OpenAI | None = None
+        self._async_client: AsyncOpenAI | None = None
 
         self.initialize_clients_logger()
 
@@ -42,9 +45,9 @@ class LLMClient:
     @retry_sync(max_retries=3, retry_delay=1.0, exponential_backoff=True)
     def chat(
         self,
-        messages: List[Dict[str, str]],
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        messages: list[dict[str, str]],
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         **kwargs: Any,
     ) -> str:
         response = self.sync_client.chat.completions.create(
@@ -62,9 +65,9 @@ class LLMClient:
     @retry_async(max_retries=3, retry_delay=1.0, exponential_backoff=True)
     async def achat(
         self,
-        messages: List[Dict[str, str]],
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        messages: list[dict[str, str]],
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         **kwargs: Any,
     ) -> str:
         response = await self.async_client.chat.completions.create(
@@ -82,9 +85,9 @@ class LLMClient:
     @retry_async(max_retries=3, retry_delay=1.0, exponential_backoff=True)
     async def achat_stream(
         self,
-        messages: List[Dict[str, str]],
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        messages: list[dict[str, str]],
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[str, None]:
         stream = await self.async_client.chat.completions.create(

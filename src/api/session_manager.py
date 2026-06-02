@@ -1,8 +1,7 @@
-import os
 import json
-import uuid
 import logging
-from typing import List, Optional
+import os
+import uuid
 from datetime import datetime
 
 logger = logging.getLogger("session")
@@ -19,7 +18,7 @@ class SessionManager:
     def _session_path(self, session_id: str) -> str:
         return os.path.join(self.sessions_dir, f"session_{session_id}.json")
 
-    def list_sessions(self) -> List[dict]:
+    def list_sessions(self) -> list[dict]:
         """列出所有会话（按 updated_at 倒序）"""
         sessions = []
         for filename in os.listdir(self.sessions_dir):
@@ -27,7 +26,7 @@ class SessionManager:
                 continue
             filepath = os.path.join(self.sessions_dir, filename)
             try:
-                with open(filepath, "r", encoding="utf-8") as f:
+                with open(filepath, encoding="utf-8") as f:
                     data = json.load(f)
                 # 只返回摘要信息，不返回全部消息
                 sessions.append({
@@ -44,7 +43,7 @@ class SessionManager:
         sessions.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
         return sessions
 
-    def create_session(self, tool_names: Optional[List[str]] = None) -> str:
+    def create_session(self, tool_names: list[str] | None = None) -> str:
         """创建新会话，返回 session_id"""
         session_id = uuid.uuid4().hex[:12]
         now = datetime.now().isoformat()
@@ -67,7 +66,7 @@ class SessionManager:
         if not os.path.exists(filepath):
             return False
         try:
-            with open(filepath, "r", encoding="utf-8") as f:
+            with open(filepath, encoding="utf-8") as f:
                 data = json.load(f)
             message.setdefault("timestamp", datetime.now().isoformat())
             data["messages"].append(message)
@@ -85,7 +84,7 @@ class SessionManager:
         if not os.path.exists(filepath):
             return False
         try:
-            with open(filepath, "r", encoding="utf-8") as f:
+            with open(filepath, encoding="utf-8") as f:
                 data = json.load(f)
             data["title"] = title
             data["updated_at"] = datetime.now().isoformat()
@@ -96,7 +95,7 @@ class SessionManager:
             logger.error(f"更新标题失败: {session_id} - {e}")
             return False
 
-    def update_tool_names(self, session_id: str, tool_names: List[str]) -> bool:
+    def update_tool_names(self, session_id: str, tool_names: list[str]) -> bool:
         """更新会话的工具配置"""
         filepath = self._session_path(session_id)
         logger.info(f"[SessionManager] update_tool_names: session_id={session_id}, filepath={filepath}, exists={os.path.exists(filepath)}")
@@ -104,7 +103,7 @@ class SessionManager:
             logger.warning(f"[SessionManager] Session file not found: {filepath}")
             return False
         try:
-            with open(filepath, "r", encoding="utf-8") as f:
+            with open(filepath, encoding="utf-8") as f:
                 data = json.load(f)
             logger.info(f"[SessionManager] Before: tool_names={data.get('tool_names')}")
             data["tool_names"] = tool_names
@@ -117,13 +116,13 @@ class SessionManager:
             logger.error(f"[SessionManager] update_tool_names failed: {session_id} - {e}")
             return False
 
-    def load_session(self, session_id: str) -> Optional[dict]:
+    def load_session(self, session_id: str) -> dict | None:
         """加载会话详情（含全部消息）"""
         filepath = self._session_path(session_id)
         if not os.path.exists(filepath):
             return None
         try:
-            with open(filepath, "r", encoding="utf-8") as f:
+            with open(filepath, encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
             logger.error(f"加载会话失败: {session_id} - {e}")
@@ -148,7 +147,7 @@ class SessionManager:
         if not os.path.exists(filepath):
             return False
         try:
-            with open(filepath, "r", encoding="utf-8") as f:
+            with open(filepath, encoding="utf-8") as f:
                 data = json.load(f)
             data["context"] = context_data
             data["updated_at"] = datetime.now().isoformat()
@@ -159,13 +158,13 @@ class SessionManager:
             logger.error(f"保存上下文失败: {session_id} - {e}")
             return False
 
-    def load_context(self, session_id: str) -> Optional[dict]:
+    def load_context(self, session_id: str) -> dict | None:
         """从会话文件加载上下文状态"""
         filepath = self._session_path(session_id)
         if not os.path.exists(filepath):
             return None
         try:
-            with open(filepath, "r", encoding="utf-8") as f:
+            with open(filepath, encoding="utf-8") as f:
                 data = json.load(f)
             return data.get("context")
         except Exception as e:

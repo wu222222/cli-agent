@@ -1,6 +1,7 @@
-from pydantic import BaseModel, Field, ValidationError
-from typing import Dict, Any, Optional, Type, Literal, List, Tuple
 from enum import Enum
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field
 
 
 class ActionType(Enum):
@@ -17,7 +18,7 @@ class ActionType(Enum):
     STOP = "stop"
 
     @classmethod
-    def from_raw(cls, raw_type: str) -> Tuple["ActionType", bool]:
+    def from_raw(cls, raw_type: str) -> tuple["ActionType", bool]:
         try:
             return cls(raw_type), True
         except ValueError:
@@ -36,8 +37,8 @@ class AgentState(Enum):
 class LLMAction(BaseModel):
     """对应 Prompt 中的 action 部分"""
     type: str
-    tool_name: Optional[str] = ""
-    parameters: Dict[str, Any] = Field(default_factory=dict)
+    tool_name: str | None = ""
+    parameters: dict[str, Any] = Field(default_factory=dict)
 
     def model_post_init(self, __context) -> None:
         # LLM 可能返回 null，统一转为空字符串
@@ -55,7 +56,7 @@ class AgentResponse(BaseModel):
     thought: str
     content: str
     action_type: ActionType
-    action_params: Dict[str, Any]
+    action_params: dict[str, Any]
     tool_name: str = ""
 
     class Config:
@@ -92,7 +93,7 @@ class LocalCallParams(BaseModel):
         return (self.result or "").upper() == "PASS"
 
 
-ACTION_SCHEMA_MAP: Dict[ActionType, Type[BaseModel]] = {
+ACTION_SCHEMA_MAP: dict[ActionType, type[BaseModel]] = {
     ActionType.EXECUTE_COMMAND: ExecuteCommandParams,
     ActionType.STOP: StopParams,
     ActionType.LOCAL_CALL: LocalCallParams,
@@ -106,9 +107,9 @@ class StateData(BaseModel):
 
 class ThinkingToExecutingData(StateData):
     response: AgentResponse
-    confirmed: Optional[bool] = None
-    confirmation_prompt: Optional[str] = ""
-    user_guidance: Optional[str] = ""  # 用户引导消息
+    confirmed: bool | None = None
+    confirmation_prompt: str | None = ""
+    user_guidance: str | None = ""  # 用户引导消息
 
     def format_for_log(self) -> str:
         return f"[{self.__class__.__name__}] 动作: {self.response.action_type.value} | 工具: {self.response.tool_name}"
@@ -125,12 +126,12 @@ class ExecutionResultData(StateData):
 
 class ErrorData(StateData):
     error_message: str
-    trace: Optional[str] = None
+    trace: str | None = None
 
 
 class StateTransition(BaseModel):
     state: AgentState
-    data: Optional[StateData] = None
+    data: StateData | None = None
 
     class Config:
         arbitrary_types_allowed = True
@@ -140,9 +141,9 @@ class Message(BaseModel):
     role: Literal["user", "assistant", "system", "tool", "summary"] = Field(default="assistant")
     content: str
     sender: str
-    receivers: List[str] = Field(default_factory=lambda: ["*"])
-    tool_call_id: Optional[str] = None
-    tool_name: Optional[str] = None
+    receivers: list[str] = Field(default_factory=lambda: ["*"])
+    tool_call_id: str | None = None
+    tool_name: str | None = None
     # === 记忆衰减 ===
     step_index: int = 0           # 在第几步产生（越小越老）
     importance: str = "normal"    # "critical"=永不遗忘, "normal"=正常衰减
@@ -168,6 +169,6 @@ class StateTrace(BaseModel):
     agent_name: str
     from_state: str
     to_state: str
-    data: Optional[StateData] = None
+    data: StateData | None = None
 
 

@@ -17,8 +17,9 @@ if sys.platform == "win32":
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
+from src.logger import get_logger, setup_logger
+
 from .routes import router
-from src.logger import setup_logger, get_logger
 
 # 配置全局日志：控制台彩色 + 文件输出（RotatingFileHandler 自动轮转）
 setup_logger(

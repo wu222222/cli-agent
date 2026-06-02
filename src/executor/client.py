@@ -1,13 +1,13 @@
 """全局 Docker 客户端工厂，避免重复初始化 docker.from_env()"""
-import docker
 import logging
-from typing import Optional
+
+import docker
 
 logger = logging.getLogger("executor")
 
 
 class DockerClientFactory:
-    _instance: Optional[docker.DockerClient] = None
+    _instance: docker.DockerClient | None = None
 
     @classmethod
     def get(cls) -> docker.DockerClient:

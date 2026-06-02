@@ -1,7 +1,8 @@
 import asyncio
 import functools
 import inspect
-from typing import Callable, TypeVar, ParamSpec, Any
+from collections.abc import Callable
+from typing import ParamSpec, TypeVar
 
 from src.logger import get_logger
 
@@ -83,7 +84,6 @@ def retry_async(
             @functools.wraps(func)
             def async_gen_wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
                 async def wrapped_gen():
-                    last_exception = None
                     delay = retry_delay
 
                     for attempt in range(max_retries + 1):
@@ -93,7 +93,6 @@ def retry_async(
                                 yield item
                             break  # 成功完成迭代
                         except exceptions as e:
-                            last_exception = e
                             if attempt < max_retries:
                                 logger.warning(
                                     f"第 {attempt + 1} 次重试，原因: {e}，等待 {delay:.1f}s"

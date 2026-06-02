@@ -1,34 +1,35 @@
 import asyncio
-import os
 import logging
-from typing import Optional, List
+import os
 
-from src.agent import JudgeAgent, ContextManager, PromptManager, ToolRegistry
+from src.agent import ContextManager, JudgeAgent, PromptManager, ToolRegistry
 from src.agent.base import BaseAgent
-from src.agent.types import AgentState, ThinkingToExecutingData
 from src.agent.registry import get_agent_config
+from src.agent.types import AgentState, ThinkingToExecutingData
 from src.executor import PluginContainerManager
 from src.llm.client import LLMClient
 
 from .streaming import (
-    StreamingWorkerAgent, StreamingCuratorAgent,
-    create_queue, get_queue, _make_emit_callbacks,
+    StreamingCuratorAgent,
+    StreamingWorkerAgent,
+    _make_emit_callbacks,
+    get_queue,
 )
 
 logger = logging.getLogger("api")
 
 # --- 全局组件状态 ---
-_llm_client: Optional[LLMClient] = None
-_context_manager: Optional[ContextManager] = None
-_prompt_manager: Optional[PromptManager] = None
-_tool_registry: Optional[ToolRegistry] = None
-_judge_agent: Optional[JudgeAgent] = None
-_plugin_manager: Optional[PluginContainerManager] = None
+_llm_client: LLMClient | None = None
+_context_manager: ContextManager | None = None
+_prompt_manager: PromptManager | None = None
+_tool_registry: ToolRegistry | None = None
+_judge_agent: JudgeAgent | None = None
+_plugin_manager: PluginContainerManager | None = None
 
-_pending_agent: Optional[BaseAgent] = None
+_pending_agent: BaseAgent | None = None
 
 # Agent 工具配置（内存中，前端可配置）
-_worker_tool_names: List[str] = ["call_judge"]
+_worker_tool_names: list[str] = ["call_judge"]
 
 # 历史记录
 history_store: list = []
@@ -45,32 +46,32 @@ def get_session_manager():
     return _session_manager
 
 
-def get_pending_agent() -> Optional[BaseAgent]:
+def get_pending_agent() -> BaseAgent | None:
     return _pending_agent
 
 
-def set_pending_agent(agent: Optional[BaseAgent]):
+def set_pending_agent(agent: BaseAgent | None):
     global _pending_agent
     _pending_agent = agent
 
 
-def get_plugin_manager() -> Optional[PluginContainerManager]:
+def get_plugin_manager() -> PluginContainerManager | None:
     return _plugin_manager
 
 
-def get_tool_registry() -> Optional[ToolRegistry]:
+def get_tool_registry() -> ToolRegistry | None:
     return _tool_registry
 
 
-def get_context_manager() -> Optional[ContextManager]:
+def get_context_manager() -> ContextManager | None:
     return _context_manager
 
 
-def get_worker_tool_names() -> List[str]:
+def get_worker_tool_names() -> list[str]:
     return list(_worker_tool_names)
 
 
-def set_worker_tool_names(names: List[str]):
+def set_worker_tool_names(names: list[str]):
     global _worker_tool_names
     _worker_tool_names = list(names)
     logger.info(f"WorkerAgent 工具配置已更新: {names}")
@@ -113,7 +114,7 @@ def _get_or_init_components():
     if dir_count:
         logger.info(f"从 plugins/ 目录加载了 {dir_count} 个插件")
 
-    logger.info(f"YAML 插件加载完成（容器默认不启动，请在工具设置页面启动）")
+    logger.info("YAML 插件加载完成（容器默认不启动，请在工具设置页面启动）")
 
     # 2. 注册 CALL_JUDGE 的 handler（唯一保留的 LocalTool）
     _judge_agent = JudgeAgent(
@@ -193,7 +194,7 @@ def _create_compress_handler(llm_client, context_manager):
 
 # --- Agent 创建（基于 AgentRegistry，数据驱动） ---
 
-def _resolve_tool_names(agent_type: str) -> List[str]:
+def _resolve_tool_names(agent_type: str) -> list[str]:
     """根据 AgentConfig.tool_filter 解析工具名列表"""
     config = get_agent_config(agent_type)
     if not config:
@@ -211,7 +212,7 @@ def _resolve_tool_names(agent_type: str) -> List[str]:
     return []
 
 
-def _auto_start_containers_for_tools(tool_names: List[str]):
+def _auto_start_containers_for_tools(tool_names: list[str]):
     """为指定工具列表自动启动容器"""
     if not _plugin_manager:
         return
@@ -324,9 +325,9 @@ def _rebind_callbacks(agent: BaseAgent, request_id: str):
 async def run_agent_with_streaming(agent: BaseAgent, request_id: str, session_id: str = None):
     """驱动 Agent 执行，通过 SSE 队列实时推送工具结果"""
     queue = get_queue(request_id)
-    MAX_STEPS = 50
+    max_steps = 50
 
-    for step_num in range(MAX_STEPS):
+    for step_num in range(max_steps):
         logger.info(f"[Step {step_num + 1}] 当前状态: {agent.state_machine._current_state_enum.value}")
         transition = await agent.step()
         logger.info(f"[Step {step_num + 1}] 转换到: {transition.state.value}")
@@ -397,4 +398,4 @@ async def run_with_pending_check(agent: BaseAgent, request_id: str, session_id: 
         logger.exception("Agent 运行异常")
         queue = get_queue(request_id)
         if queue:
-            await queue.put({"event": "final", "data": {"content": f"系统错误: {str(e)}", "agent": agent.name}})
+            await queue.put({"event": "final", "data": {"content": f"系统错误: {e!s}", "agent": agent.name}})

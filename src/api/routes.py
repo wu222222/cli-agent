@@ -1,36 +1,64 @@
 import asyncio
 import json
-import uuid
 import logging
 import os
-import sys
 import shlex
 import shutil
-import yaml
-from typing import List, Dict, Any
+import sys
+import uuid
 
+import yaml
 from dotenv import load_dotenv
+
 load_dotenv()
 
-from fastapi import APIRouter, Query, UploadFile, File
+from fastapi import APIRouter, File, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from src.agent.types import AgentState, ThinkingToExecutingData
 
-from .models import ChatRequest, ChatResponse, CuratorRequest, HealthResponse, PluginInfo, PluginActionResponse, ComposePluginInfo
-from .streaming import create_queue, get_queue
-from .services import (
-    _get_or_init_components, _create_worker_agent, _create_curator_agent,
-    _rebind_callbacks, run_agent_with_streaming, run_with_pending_check,
-    get_pending_agent, set_pending_agent, history_store,
-    get_plugin_manager, get_tool_registry, get_context_manager,
-    get_worker_tool_names, set_worker_tool_names,
+from .models import (
+    ChatRequest,
+    ChatResponse,
+    ComposePluginInfo,
+    CuratorRequest,
+    HealthResponse,
+    PluginActionResponse,
+    PluginInfo,
 )
+from .services import (
+    _create_curator_agent,
+    _create_worker_agent,
+    _get_or_init_components,
+    _rebind_callbacks,
+    get_context_manager,
+    get_pending_agent,
+    get_plugin_manager,
+    get_tool_registry,
+    get_worker_tool_names,
+    history_store,
+    run_agent_with_streaming,
+    run_with_pending_check,
+    set_pending_agent,
+    set_worker_tool_names,
+)
+from .streaming import create_queue, get_queue
 
 logger = logging.getLogger("api")
 
 router = APIRouter(prefix="/api")
+
+# Store references to background tasks to prevent garbage collection
+_background_tasks: set[asyncio.Task] = set()
+
+
+def _create_background_task(coro) -> asyncio.Task:
+    """Create a background task and store reference to prevent GC."""
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    return task
 
 # 配置文件路径（保存 Python 路径等 Electron 配置）
 CONFIG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "config")
@@ -41,7 +69,7 @@ def load_electron_config() -> dict:
     """读取 Electron 配置文件"""
     if os.path.exists(CONFIG_FILE):
         try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            with open(CONFIG_FILE, encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             pass
@@ -144,7 +172,7 @@ async def setup_save(body: dict):
 
     lines = []
     if os.path.exists(env_path):
-        with open(env_path, "r", encoding="utf-8") as f:
+        with open(env_path, encoding="utf-8") as f:
             lines = f.readlines()
 
     # 更新或追加配置
@@ -187,7 +215,7 @@ async def get_plugins_config():
     plugins_path = os.path.join(config_dir, "plugins.yaml")
     if not os.path.exists(plugins_path):
         return {"content": "", "exists": False}
-    with open(plugins_path, "r", encoding="utf-8") as f:
+    with open(plugins_path, encoding="utf-8") as f:
         content = f.read()
     return {"content": content, "exists": True}
 
@@ -237,7 +265,7 @@ async def list_installed_plugins():
         if not os.path.isfile(plugin_yaml):
             continue
         try:
-            with open(plugin_yaml, "r", encoding="utf-8") as f:
+            with open(plugin_yaml, encoding="utf-8") as f:
                 data = _yaml.safe_load(f)
             for p in data.get("plugins", []):
                 result.append({
@@ -271,13 +299,16 @@ async def delete_installed_plugin(dir_name: str):
         logger.info(f"已删除插件目录: {dir_name}")
         return {"success": True, "message": f"已删除插件「{dir_name}」，重启后生效"}
     except Exception as e:
-        return {"success": False, "message": f"删除失败: {str(e)}"}
+        return {"success": False, "message": f"删除失败: {e!s}"}
 
 
 @router.post("/plugins/import")
 async def import_plugin(file: UploadFile = File(...)):
     """导入插件 ZIP 包到 config/plugins/ 目录"""
-    import zipfile, io, tempfile, shutil
+    import io
+    import shutil
+    import tempfile
+    import zipfile
 
     content = await file.read()
     if not content:
@@ -309,7 +340,7 @@ async def import_plugin(file: UploadFile = File(...)):
                     plugin_name = "imported_plugin"
                 target_dir = os.path.join(plugins_dir, plugin_name)
             elif len(top_levels) == 1:
-                target_dir = os.path.join(plugins_dir, list(top_levels)[0])
+                target_dir = os.path.join(plugins_dir, next(iter(top_levels)))
             else:
                 target_dir = os.path.join(plugins_dir, "imported_plugin")
 
@@ -336,7 +367,7 @@ async def import_plugin(file: UploadFile = File(...)):
 
             # 读取插件信息
             import yaml as _yaml
-            with open(plugin_yaml, "r", encoding="utf-8") as f:
+            with open(plugin_yaml, encoding="utf-8") as f:
                 data = _yaml.safe_load(f)
             plugins_info = []
             for p in data.get("plugins", []):
@@ -355,7 +386,7 @@ async def import_plugin(file: UploadFile = File(...)):
     except zipfile.BadZipFile:
         return {"success": False, "message": "无效的 ZIP 文件"}
     except Exception as e:
-        return {"success": False, "message": f"导入失败: {str(e)}"}
+        return {"success": False, "message": f"导入失败: {e!s}"}
 
 
 # === 系统 ===
@@ -384,7 +415,7 @@ async def start_docker():
             subprocess.Popen([docker_desktop])
             return {"success": True, "message": "正在启动 Docker Desktop..."}
         except Exception as e:
-            return {"success": False, "message": f"启动失败: {str(e)}"}
+            return {"success": False, "message": f"启动失败: {e!s}"}
     return {"success": False, "message": "未找到 Docker Desktop"}
 
 
@@ -580,7 +611,7 @@ async def create_safe_cli_env():
                 yield f"data: {json.dumps({'type': 'error', 'message': f'conda create 失败 (code {proc.returncode})'})}\n\n"
                 return
         except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'message': f'创建环境失败: {str(e)}'})}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'message': f'创建环境失败: {e!s}'})}\n\n"
             return
 
         yield f"data: {json.dumps({'type': 'progress', 'step': 2, 'message': '正在安装依赖...'})}\n\n"
@@ -620,7 +651,7 @@ async def create_safe_cli_env():
                 yield f"data: {json.dumps({'type': 'error', 'message': f'pip install 失败 (code {proc.returncode})'})}\n\n"
                 return
         except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'message': f'安装依赖失败: {str(e)}'})}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'message': f'安装依赖失败: {e!s}'})}\n\n"
             return
 
         yield f"data: {json.dumps({'type': 'done', 'message': '环境创建完成！', 'python_path': env_python})}\n\n"
@@ -656,7 +687,12 @@ async def list_marketplace_plugins():
 @router.post("/plugins/marketplace/install")
 async def install_from_marketplace(body: dict):
     """从插件市场安装指定插件"""
-    import httpx, zipfile, io, shutil, tempfile
+    import io
+    import shutil
+    import tempfile
+    import zipfile
+
+    import httpx
 
     plugin_name = body.get("name", "")
     repo_path = body.get("repo_path", "")
@@ -708,7 +744,7 @@ async def install_from_marketplace(body: dict):
             "need_restart": True,
         }
     except Exception as e:
-        return {"success": False, "message": f"安装失败: {str(e)}"}
+        return {"success": False, "message": f"安装失败: {e!s}"}
 
 
 @router.get("/agent/chat/stream")
@@ -765,7 +801,7 @@ async def chat_with_agent(request: ChatRequest):
         if isinstance(waiting_state.data, ThinkingToExecutingData):
             waiting_state.data.confirmed = True
 
-        asyncio.create_task(run_agent_with_streaming(agent, request_id, session_id))
+        _create_background_task(run_agent_with_streaming(agent, request_id, session_id))
         return ChatResponse(request_id=request_id, type="text", agent=agent.name)
 
     # --- 情况 B：新消息 ---
@@ -776,7 +812,7 @@ async def chat_with_agent(request: ChatRequest):
     agent._prepare_context(request.message)
     agent.state_machine.transition(AgentState.THINKING)
 
-    asyncio.create_task(run_with_pending_check(agent, request_id, session_id))
+    _create_background_task(run_with_pending_check(agent, request_id, session_id))
     return ChatResponse(request_id=request_id, type="text", agent=agent.name)
 
 
@@ -799,7 +835,7 @@ async def confirm_command(request: ChatRequest):
 
     _rebind_callbacks(agent, request_id)
 
-    asyncio.create_task(run_with_pending_check(agent, request_id, session_id))
+    _create_background_task(run_with_pending_check(agent, request_id, session_id))
     return ChatResponse(request_id=request_id, type="text", agent=agent.name)
 
 
@@ -823,7 +859,7 @@ async def reject_command(request: ChatRequest):
             waiting_state.data.user_guidance = guidance
 
         _rebind_callbacks(agent, request_id)
-        asyncio.create_task(run_with_pending_check(agent, request_id))
+        _create_background_task(run_with_pending_check(agent, request_id))
         return ChatResponse(request_id=request_id, type="text", agent=agent.name)
     else:
         # 无引导 → 终止
@@ -831,10 +867,9 @@ async def reject_command(request: ChatRequest):
         waiting_state = agent.state_machine._states[AgentState.WAITING_CONFIRMATION]
         if isinstance(waiting_state.data, ThinkingToExecutingData):
             waiting_state.data.confirmed = False
-        try:
+        import contextlib
+        with contextlib.suppress(Exception):
             await agent.step()
-        except Exception:
-            pass
         return ChatResponse(request_id="", content="命令已被拒绝", type="text")
 
 
@@ -851,7 +886,7 @@ async def run_curator(request: CuratorRequest):
     agent._prepare_context(request.task)
     agent.state_machine.transition(AgentState.THINKING)
 
-    asyncio.create_task(run_with_pending_check(agent, request_id))
+    _create_background_task(run_with_pending_check(agent, request_id))
     return ChatResponse(request_id=request_id, type="text", agent=agent.name)
 
 
@@ -916,7 +951,7 @@ async def clear_history():
     return {"status": "success"}
 
 
-@router.get("/plugins", response_model=List[PluginInfo])
+@router.get("/plugins", response_model=list[PluginInfo])
 async def list_plugins():
     _get_or_init_components()
     registry = get_tool_registry()
@@ -926,11 +961,11 @@ async def list_plugins():
     return _build_plugin_list(registry, manager)
 
 
-def _build_plugin_list(registry, manager, include_call_judge: bool = False) -> List[PluginInfo]:
+def _build_plugin_list(registry, manager, include_call_judge: bool = False) -> list[PluginInfo]:
     """构建插件列表 — 所有数据直接从 Tool 对象读取，不再重读 YAML"""
     from src.agent.tools import ExecContainerPlugin
 
-    plugins: List[PluginInfo] = []
+    plugins: list[PluginInfo] = []
 
     for name in registry.list_tools():
         tool = registry.get_tool(name)
@@ -992,7 +1027,7 @@ async def start_plugin(name: str):
         return PluginActionResponse(success=False, message="未配置容器名")
 
     # 从 YAML 获取 image 和 mount_dirs
-    import yaml, os
+    import os
     plugins_yaml = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "config", "plugins.yaml")
     image = ""
     mount_dirs = []
@@ -1190,12 +1225,11 @@ async def regenerate_compose(name: str):
         return {"success": False, "message": f"异常: {e}"}
 
 
-@router.get("/composes", response_model=List[ComposePluginInfo])
+@router.get("/composes", response_model=list[ComposePluginInfo])
 async def list_composes():
     """获取所有 compose 插件"""
     _get_or_init_components()
     registry = get_tool_registry()
-    manager = get_plugin_manager()
     if not registry:
         return []
 
@@ -1206,9 +1240,6 @@ async def list_composes():
             continue
         children = []
         for child_cfg in compose.children_config:
-            role = child_cfg.get('role', None)
-            child_type = child_cfg.get('type', 'exec')  # 兼容旧字段
-
             # type 字段优先（与顶层插件同构），role 兼容旧格式
             child_type = child_cfg.get('type', None)
             if child_type is None:
@@ -1283,7 +1314,7 @@ async def _stop_compose(compose, registry):
 # --- Agent 工具配置 API ---
 
 class AgentToolConfig(BaseModel):
-    tool_names: List[str]
+    tool_names: list[str]
 
 
 @router.get("/agent/tools")
@@ -1402,7 +1433,7 @@ async def resume_session(session_id: str):
         cm.from_dict(context_data)
         logger.info(f"[resume_session] 上下文已恢复: {len(cm.messages)} 条消息")
     else:
-        logger.info(f"[resume_session] 无保存的上下文，已清空")
+        logger.info("[resume_session] 无保存的上下文，已清空")
 
     return {
         "session_id": session_id,

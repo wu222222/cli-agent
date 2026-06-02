@@ -1,15 +1,15 @@
-from typing import Dict, Any, Optional, Type
-from abc import ABC, abstractmethod
 import json
+from abc import ABC, abstractmethod
+from typing import Any
 
 from pydantic import ValidationError
 
-from src.logger import get_logger
 from src.agent.context import ContextManager
 from src.agent.prompt import PromptManager
 from src.agent.tools import ToolRegistry
 from src.agent.types import *
 from src.llm import LLMClient
+from src.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -18,10 +18,10 @@ class BaseAgent(ABC):
     def __init__(
         self,
         name: str,
-        llm_client: Optional[LLMClient] = None,
-        context_manager: Optional[ContextManager] = None,
-        prompt_manager: Optional[PromptManager] = None,
-        tool_registry: Optional[ToolRegistry] = None,
+        llm_client: LLMClient | None = None,
+        context_manager: ContextManager | None = None,
+        prompt_manager: PromptManager | None = None,
+        tool_registry: ToolRegistry | None = None,
     ):
         self.name = name
         self.llm_client = llm_client or LLMClient()
@@ -75,7 +75,9 @@ class BaseAgent(ABC):
         import asyncio
         try:
             loop = asyncio.get_event_loop()
-            loop.create_task(self._auto_compress())
+            task = loop.create_task(self._auto_compress())
+            # Store reference to prevent garbage collection
+            self._compress_task = task
         except RuntimeError:
             pass
 
@@ -101,7 +103,7 @@ class BaseAgent(ABC):
         self.state_machine.transition(AgentState.THINKING)
 
         try:
-            for iteration in range(self.max_iterations):
+            for _iteration in range(self.max_iterations):
                 transition = await self.state_machine.execute()
                 next_state = transition.state
                 data = transition.data or {}
@@ -118,13 +120,13 @@ class BaseAgent(ABC):
             return "Max iterations reached"
         except Exception as e:
             self.state_machine.transition(AgentState.ERROR, data=ErrorData(error_message=str(e)))
-            return f"System error: {str(e)}"
+            return f"System error: {e!s}"
 
     @abstractmethod
     async def _think(self) -> AgentResponse:
         pass
 
-    def _parse_action(self, response_text: str) -> Optional[LLMOutput]:
+    def _parse_action(self, response_text: str) -> LLMOutput | None:
         try:
             json_str = self._extract_json(response_text)
             if not json_str:
@@ -145,7 +147,7 @@ class BaseAgent(ABC):
                 pass
             logger.warning(f"JSON parse or validation failed: {e}")
             if isinstance(e, json.JSONDecodeError) and e.pos:
-                logger.debug(f"JSON near error: {repr(json_str[max(0,e.pos-30):e.pos+30])}")
+                logger.debug(f"JSON near error: {json_str[max(0,e.pos-30):e.pos+30]!r}")
             return None
 
     @staticmethod
@@ -165,7 +167,7 @@ class BaseAgent(ABC):
         return re.sub(r'\\(.)', _replace, s)
 
     @staticmethod
-    def _extract_json(text: str) -> Optional[str]:
+    def _extract_json(text: str) -> str | None:
         json_start = text.find('```json')
         if json_start >= 0:
             content_start = text.find('\n', json_start)
@@ -194,7 +196,7 @@ class BaseAgent(ABC):
 
         return text.strip()
 
-    async def _execute_action(self, action_type: ActionType, action_params: Dict[str, Any], tool_name: Optional[str] = None) -> str:
+    async def _execute_action(self, action_type: ActionType, action_params: dict[str, Any], tool_name: str | None = None) -> str:
         exec_name = tool_name or action_type.value
         logger.info(f"Execute tool: {exec_name} (action: {action_type}), params: {action_params}")
         result = await self.tools.run(exec_name, action_params)
@@ -209,18 +211,18 @@ class State(ABC):
     def __init__(self, state_machine: 'BaseStateMachine'):
         self.state_machine = state_machine
         self.state = None
-        self.agent: Optional[BaseAgent] = None
+        self.agent: BaseAgent | None = None
 
     @abstractmethod
-    def on_enter(self, data: Optional[StateData] = None):
+    def on_enter(self, data: StateData | None = None):
         pass
 
     @abstractmethod
-    def on_exit(self, data: Optional[StateData] = None):
+    def on_exit(self, data: StateData | None = None):
         pass
 
     @abstractmethod
-    async def execute(self, data: Optional[StateData] = None) -> StateTransition:
+    async def execute(self, data: StateData | None = None) -> StateTransition:
         pass
 
     def can_transition_to(self, new_state: AgentState) -> bool:
@@ -230,9 +232,9 @@ class State(ABC):
 class BaseStateMachine(ABC):
     def __init__(self, initial_state: AgentState):
         self._current_state_enum = initial_state
-        self._states: Dict[AgentState, State] = {}
-        self._current_state: Optional[State] = None
-        self.agent: Optional['BaseAgent'] = None
+        self._states: dict[AgentState, State] = {}
+        self._current_state: State | None = None
+        self.agent: BaseAgent | None = None
 
     def set_agent(self, agent: 'BaseAgent'):
         self.agent = agent
@@ -246,7 +248,7 @@ class BaseStateMachine(ABC):
     def is_in_state(self, state_enum: AgentState) -> bool:
         return self._current_state_enum == state_enum
 
-    def transition(self, new_state_enum: AgentState, data: Optional[StateData] = None) -> bool:
+    def transition(self, new_state_enum: AgentState, data: StateData | None = None) -> bool:
         if new_state_enum not in self._states:
             return False
 
@@ -264,5 +266,5 @@ class BaseStateMachine(ABC):
         self._current_state.on_enter(data)
         return True
 
-    async def execute(self, data: Optional[StateData] = None) -> StateTransition:
+    async def execute(self, data: StateData | None = None) -> StateTransition:
         return await self._current_state.execute(data)

@@ -1,4 +1,4 @@
-from .docker import DockerExecutor, DockerConfig, PluginContainerManager
 from .client import DockerClientFactory
+from .docker import DockerConfig, DockerExecutor, PluginContainerManager
 
-__all__ = ["DockerExecutor", "DockerConfig", "PluginContainerManager", "DockerClientFactory"]
+__all__ = ["DockerClientFactory", "DockerConfig", "DockerExecutor", "PluginContainerManager"]

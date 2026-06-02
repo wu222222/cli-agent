@@ -1,17 +1,18 @@
+from typing import Any
+
 from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
 
 
 class ChatRequest(BaseModel):
     message: str = ""
-    confirmed: Optional[bool] = False
-    session_id: Optional[str] = None
+    confirmed: bool | None = False
+    session_id: str | None = None
 
 
 class ChatResponse(BaseModel):
     request_id: str
     content: str = ""
-    thought: Optional[str] = ""
+    thought: str | None = ""
     type: str = "text"
     agent: str = "WorkerAgent"
 
@@ -31,18 +32,18 @@ class PluginInfo(BaseModel):
     agent_type: str = "worker"  # worker / judge / curator / none
     container_name: str = ""
     status: str = "unknown"
-    bound_action: Optional[str] = None
+    bound_action: str | None = None
     requires_confirmation: bool = False
-    mount_dirs: List[str] = []
-    parameters: Optional[Dict[str, Any]] = None
-    required_params: Optional[List[str]] = None
+    mount_dirs: list[str] = []
+    parameters: dict[str, Any] | None = None
+    required_params: list[str] | None = None
     # 前端展示（直接从 Tool 对象读取，不再重读 YAML）
     category: str = "other"
     icon: str = "default"
     command_trigger: str = ""
     display_name: str = ""
     # compose 子工具标识
-    parent_compose: Optional[str] = None
+    parent_compose: str | None = None
 
 
 class ComposePluginInfo(BaseModel):
@@ -53,7 +54,7 @@ class ComposePluginInfo(BaseModel):
     running: bool = False
     category: str = "other"
     icon: str = "default"
-    children: List[PluginInfo] = []
+    children: list[PluginInfo] = []
     has_regenerate: bool = False
 
 

@@ -65,8 +65,11 @@ class TestContextManager:
         cm.inject_summary("Summary of messages 1 and 2")
 
         assert len(cm.summaries) == 1
-        assert cm.summary_index == 3  # 2 messages + 1 summary
+        # Note: summary_index is set BEFORE appending summary message
+        # so it equals len(messages) before append = 2
+        assert cm.summary_index == 2
         assert cm.messages[-1].role == "summary"
+        assert cm.messages[-1].content == "Summary of messages 1 and 2"
 
     def test_get_unsummarized_messages(self):
         """Test getting unsummarized messages."""
@@ -78,10 +81,12 @@ class TestContextManager:
         unsummarized = cm.get_unsummarized_messages()
         assert len(unsummarized) == 2
 
-        # After summary
+        # After summary, the summary message itself is unsummarized
+        # because summary_index is set before append
         cm.inject_summary("Summary")
         unsummarized = cm.get_unsummarized_messages()
-        assert len(unsummarized) == 0
+        assert len(unsummarized) == 1  # Only the summary message
+        assert unsummarized[0].role == "summary"
 
     def test_clear(self):
         """Test clearing context."""

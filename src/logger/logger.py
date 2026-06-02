@@ -1,12 +1,11 @@
+import glob
+import json
 import logging
 import logging.handlers
 import os
 import sys
-import json
-import glob
 import time
-from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Any
 
 DEFAULT_LOG_LEVEL = logging.INFO
 
@@ -19,15 +18,17 @@ LOG_EXPIRE_DAYS = 7              # 清理 7 天以上的旧日志
 class ColorFormatter(logging.Formatter):
     """带颜色的日志格式化器（仅在 TTY 环境下生效）"""
 
+    from typing import ClassVar
+
     # ANSI 颜色代码
-    COLORS = {
+    COLORS: ClassVar[dict[int, str]] = {
         logging.DEBUG: '\033[0;36m',  # 青色
         logging.INFO: '\033[0;32m',   # 绿色
         logging.WARNING: '\033[0;33m',# 黄色
         logging.ERROR: '\033[0;31m',  # 红色
         logging.CRITICAL: '\033[0;35m'# 紫色
     }
-    RESET = '\033[0m'
+    RESET: ClassVar[str] = '\033[0m'
 
     def __init__(self, fmt=None, datefmt=None, is_tty=True):
         super().__init__(fmt, datefmt)
@@ -78,8 +79,8 @@ def _cleanup_old_logs(log_dir: str, expire_days: int = LOG_EXPIRE_DAYS) -> None:
 
 def setup_logger(
     level: int = DEFAULT_LOG_LEVEL,
-    log_file: Optional[str] = None,
-    formatter: Optional[logging.Formatter] = None,
+    log_file: str | None = None,
+    formatter: logging.Formatter | None = None,
     use_color: bool = True,
     use_json: bool = False,
     format_string: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -142,7 +143,7 @@ def setup_logger(
         root_logger.addHandler(file_handler)
 
 
-def get_logger(name: Optional[str] = None) -> logging.Logger:
+def get_logger(name: str | None = None) -> logging.Logger:
     """
     获取日志记录器
 

@@ -1,47 +1,48 @@
-from typing import Optional
+
+from src.logger import get_logger
+
 from .base import BaseStateMachine, State
 from .types import *
-from src.logger import get_logger
 
 logger = get_logger(__name__)
 
 
 class IdleState(State):
     """空闲状态"""
-    
+
     def __init__(self, state_machine: BaseStateMachine):
         super().__init__(state_machine)
         self.state = AgentState.IDLE
-    
-    def on_enter(self, data: Optional[StateData] = None):
+
+    def on_enter(self, data: StateData | None = None):
         pass
-    
-    def on_exit(self, data: Optional[StateData] = None):
+
+    def on_exit(self, data: StateData | None = None):
         pass
-    
-    async def execute(self, data: Optional[StateData] = None) -> StateTransition:
+
+    async def execute(self, data: StateData | None = None) -> StateTransition:
         """执行空闲状态逻辑"""
         return StateTransition(state=AgentState.THINKING)
-    
-    def can_transition_to(self, new_state: AgentState, data: Optional[StateData] = None) -> bool:
+
+    def can_transition_to(self, new_state: AgentState, data: StateData | None = None) -> bool:
         return new_state == AgentState.THINKING
 
 
 class WorkerThinkingState(State):
     """思考状态"""
-    
+
     def __init__(self, state_machine: BaseStateMachine):
         super().__init__(state_machine)
         self.state = AgentState.THINKING
-        self.response:Optional[AgentResponse] = None
-    
-    def on_enter(self, data: Optional[StateData] = None):
+        self.response:AgentResponse | None = None
+
+    def on_enter(self, data: StateData | None = None):
         pass
-    
-    def on_exit(self, data: Optional[StateData] = None):
+
+    def on_exit(self, data: StateData | None = None):
         pass
-    
-    async def execute(self, data: Optional[StateData] = None) -> StateTransition:
+
+    async def execute(self, data: StateData | None = None) -> StateTransition:
         """执行思考状态逻辑"""
         self.response = await self.agent._think()
 
@@ -82,7 +83,7 @@ class WorkerThinkingState(State):
                     )
                     return StateTransition(state=AgentState.WAITING_CONFIRMATION, data=out_data)
                 return StateTransition(
-                    state=AgentState.EXECUTING, 
+                    state=AgentState.EXECUTING,
                     data=ThinkingToExecutingData(response=self.response)
                 )
 
@@ -94,11 +95,11 @@ class WorkerThinkingState(State):
 
             case _:
                 return StateTransition(
-                    state=AgentState.EXECUTING, 
+                    state=AgentState.EXECUTING,
                     data=ThinkingToExecutingData(response=self.response)
                 )
-    
-    def can_transition_to(self, new_state: AgentState, data: Optional[StateData] = None) -> bool:
+
+    def can_transition_to(self, new_state: AgentState, data: StateData | None = None) -> bool:
         return new_state in [
             AgentState.WAITING_CONFIRMATION,
             AgentState.EXECUTING,
@@ -108,13 +109,13 @@ class WorkerThinkingState(State):
 
 class ExecutingState(State):
     """执行状态"""
-    
+
     def __init__(self, state_machine: BaseStateMachine):
         super().__init__(state_machine)
         self.state = AgentState.EXECUTING
-        self.response:Optional[AgentResponse] = None
-    
-    def on_enter(self, data: Optional[StateData] = None):
+        self.response:AgentResponse | None = None
+
+    def on_enter(self, data: StateData | None = None):
         self.response = None
         self._user_guidance = ""
         if isinstance(data, ThinkingToExecutingData):
@@ -124,11 +125,11 @@ class ExecutingState(State):
         else:
             # 如果类型不对，可以提前预警或处理
             logger.error(f"ExecutingState 期待 ThinkingToExecutingData, 但收到 {type(data)}")
-    
-    def on_exit(self, data: Optional[StateData] = None):
+
+    def on_exit(self, data: StateData | None = None):
         pass
-    
-    async def execute(self, data: Optional[StateData] = None) -> StateTransition:
+
+    async def execute(self, data: StateData | None = None) -> StateTransition:
         """执行执行状态逻辑"""
         if self.response and self.response.action_type:
             try:
@@ -164,11 +165,11 @@ class ExecutingState(State):
                 )
                 return StateTransition(state=AgentState.THINKING, data=ExecutionResultData(observation=observation, action_type=self.response.action_type))
             except Exception as e:
-                self.agent.context_manager.set_final_answer(f"执行错误: {str(e)}")
-                return StateTransition(state=AgentState.ERROR, data=ErrorData(error_message=f"执行错误: {str(e)}"))
+                self.agent.context_manager.set_final_answer(f"执行错误: {e!s}")
+                return StateTransition(state=AgentState.ERROR, data=ErrorData(error_message=f"执行错误: {e!s}"))
         return StateTransition(state=AgentState.ERROR, data=ErrorData(error_message="执行状态未提供响应"))
-        
-    def can_transition_to(self, new_state: AgentState, data: Optional[StateData] = None) -> bool:
+
+    def can_transition_to(self, new_state: AgentState, data: StateData | None = None) -> bool:
         return new_state in [
             AgentState.THINKING,
             AgentState.COMPLETED,
@@ -178,24 +179,24 @@ class ExecutingState(State):
 
 class WaitingConfirmationState(State):
     """等待确认状态"""
-    
+
     def __init__(self, state_machine: BaseStateMachine):
         super().__init__(state_machine)
         self.state = AgentState.WAITING_CONFIRMATION
-        self.data:Optional[ThinkingToExecutingData] = None
-    
-    def on_enter(self, data: Optional[StateData] = None):
+        self.data:ThinkingToExecutingData | None = None
+
+    def on_enter(self, data: StateData | None = None):
         self.data = None # 重置数据状态
         if isinstance(data, ThinkingToExecutingData):
             self.data = data
         else:
             logger.error(f"WaitingConfirmationState 期待 ThinkingToExecutingData, 但收到 {type(data)}")
         pass
-    
-    def on_exit(self, data: Optional[StateData] = None):
+
+    def on_exit(self, data: StateData | None = None):
         pass
 
-    async def execute(self, data: Optional[StateData] = None) -> StateTransition:
+    async def execute(self, data: StateData | None = None) -> StateTransition:
         """执行等待确认状态逻辑"""
         if not isinstance(self.data, ThinkingToExecutingData):
             return StateTransition(state=AgentState.ERROR, data=ErrorData(error_message="数据类型错误"))
@@ -237,54 +238,50 @@ class WaitingConfirmationState(State):
                 self.agent.context_manager.set_final_answer("操作已被用户取消")
                 return StateTransition(state=AgentState.COMPLETED)
 
-    def can_transition_to(self, new_state: AgentState, data: Optional[StateData] = None) -> bool:
-        if new_state == AgentState.EXECUTING:
-            return True
-        elif new_state in [AgentState.COMPLETED, AgentState.ERROR]:
-            return True
-        return False
+    def can_transition_to(self, new_state: AgentState, data: StateData | None = None) -> bool:
+        return new_state == AgentState.EXECUTING or new_state in [AgentState.COMPLETED, AgentState.ERROR]
 
 
 class CompletedState(State):
     """完成状态"""
-    
+
     def __init__(self, state_machine: BaseStateMachine):
         super().__init__(state_machine)
         self.state = AgentState.COMPLETED
-        self.temp_data:Optional[StateData] = None
-    
-    def on_enter(self, data: Optional[StateData] = None):
+        self.temp_data:StateData | None = None
+
+    def on_enter(self, data: StateData | None = None):
         self.temp_data = data
-    
-    def on_exit(self, data: Optional[StateData] = None):
+
+    def on_exit(self, data: StateData | None = None):
         pass
-    
-    async def execute(self, data: Optional[StateData] = None) -> StateTransition:
+
+    async def execute(self, data: StateData | None = None) -> StateTransition:
         """执行完成状态逻辑"""
         return StateTransition(state=AgentState.COMPLETED, data=self.temp_data)  # 保持在完成状态
-    
-    def can_transition_to(self, new_state: AgentState, data: Optional[StateData] = None) -> bool:
+
+    def can_transition_to(self, new_state: AgentState, data: StateData | None = None) -> bool:
         return new_state == AgentState.IDLE
 
 
 class ErrorState(State):
     """错误状态"""
-    
+
     def __init__(self, state_machine: BaseStateMachine):
         super().__init__(state_machine)
         self.state = AgentState.ERROR
-    
-    def on_enter(self, data: Optional[StateData] = None):
+
+    def on_enter(self, data: StateData | None = None):
         pass
-    
-    def on_exit(self, data: Optional[StateData] = None):
+
+    def on_exit(self, data: StateData | None = None):
         pass
-    
-    async def execute(self, data: Optional[StateData] = None) -> StateTransition:
+
+    async def execute(self, data: StateData | None = None) -> StateTransition:
         """执行错误状态逻辑"""
         return StateTransition(state=AgentState.ERROR, data=ErrorData(error_message="操作已取消"))  # 保持在错误状态
-    
-    def can_transition_to(self, new_state: AgentState, data: Optional[StateData] = None) -> bool:
+
+    def can_transition_to(self, new_state: AgentState, data: StateData | None = None) -> bool:
         return new_state == AgentState.IDLE
 
 class JudgeState(State):
@@ -293,15 +290,15 @@ class JudgeState(State):
     def __init__(self, state_machine: BaseStateMachine):
         super().__init__(state_machine)
         self.state = AgentState.THINKING
-        self.response:Optional[AgentResponse] = None
-    
-    def on_enter(self, data: Optional[StateData] = None):
+        self.response:AgentResponse | None = None
+
+    def on_enter(self, data: StateData | None = None):
         pass
-    
-    def on_exit(self, data: Optional[StateData] = None):
+
+    def on_exit(self, data: StateData | None = None):
         pass
-    
-    async def execute(self, data: Optional[StateData] = None) -> StateTransition:
+
+    async def execute(self, data: StateData | None = None) -> StateTransition:
         self.response = await self.agent._think()
         # 存储 thought
         self.agent.last_thought = self.response.thought or ""
@@ -320,8 +317,8 @@ class JudgeState(State):
                 action_type=ActionType.LOCAL_CALL,
             )
             return StateTransition(state=AgentState.COMPLETED, data=data)
-    
-    def can_transition_to(self, new_state: AgentState, data: Optional[StateData] = None) -> bool:
+
+    def can_transition_to(self, new_state: AgentState, data: StateData | None = None) -> bool:
         return new_state in [
             AgentState.THINKING,
             AgentState.COMPLETED,
@@ -330,19 +327,19 @@ class JudgeState(State):
 
 class CuratorThinkingState(State):
     """知识整理者思考状态"""
-    
+
     def __init__(self, state_machine: BaseStateMachine):
         super().__init__(state_machine)
         self.state = AgentState.THINKING
-        self.response:Optional[AgentResponse] = None
-    
-    def on_enter(self, data: Optional[StateData] = None):
+        self.response:AgentResponse | None = None
+
+    def on_enter(self, data: StateData | None = None):
         pass
 
-    def on_exit(self, data: Optional[StateData] = None):
+    def on_exit(self, data: StateData | None = None):
         pass
-    
-    async def execute(self, data: Optional[StateData] = None) -> StateTransition:
+
+    async def execute(self, data: StateData | None = None) -> StateTransition:
         """执行知识整理者思考状态逻辑"""
         self.response = await self.agent._think()
 
@@ -372,14 +369,14 @@ class CuratorThinkingState(State):
                     state=AgentState.EXECUTING,
                     data=ThinkingToExecutingData(response=self.response)
                 )
-            
+
             case _:
                 return StateTransition(
-                    state=AgentState.ERROR, 
+                    state=AgentState.ERROR,
                     data=ErrorData(error_message=f"不支持的动作类型: {self.response.action_type.value}")
                 )
-    
-    def can_transition_to(self, new_state: AgentState, data: Optional[StateData] = None) -> bool:
+
+    def can_transition_to(self, new_state: AgentState, data: StateData | None = None) -> bool:
         return new_state in [
             AgentState.COMPLETED,
             AgentState.ERROR,
@@ -408,7 +405,7 @@ class JudgeStateMachine(BaseStateMachine):
     """
     简单的评审状态机
     """
-    
+
     def __init__(self):
         super().__init__(AgentState.IDLE)
         self._setup_states()
@@ -435,10 +432,10 @@ class CuratorStateMachine(BaseStateMachine):
         self._states = {
             AgentState.IDLE: IdleState(self),
             # THINKING 阶段：分析历史，提取知识点
-            AgentState.THINKING: CuratorThinkingState(self), 
+            AgentState.THINKING: CuratorThinkingState(self),
             # EXECUTING 阶段：调用本地工具进行文件 IO 操作
             AgentState.WAITING_CONFIRMATION: WaitingConfirmationState(self),
-            AgentState.EXECUTING: ExecutingState(self), 
+            AgentState.EXECUTING: ExecutingState(self),
             AgentState.COMPLETED: CompletedState(self),
             AgentState.ERROR: ErrorState(self)
         }

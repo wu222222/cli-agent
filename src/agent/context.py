@@ -1,6 +1,5 @@
-from typing import List, Dict, Any, Optional, Union, Literal
-from pydantic import BaseModel, Field
 import logging
+from typing import Any
 
 from src.agent.types import *
 
@@ -8,16 +7,16 @@ logger = logging.getLogger("context")
 
 
 class ContextManager:
-    def __init__(self, policy: Optional[ContextPolicy] = None):
-        self.messages: List[Message] = []
-        self.state_trace: List[StateTrace] = []
+    def __init__(self, policy: ContextPolicy | None = None):
+        self.messages: list[Message] = []
+        self.state_trace: list[StateTrace] = []
         self.system_prompts: dict[str, str] = {}
-        self.final_answer: Optional[str] = None
+        self.final_answer: str | None = None
         # === 记忆衰减 ===
         self.current_step: int = 0
         self.policy: ContextPolicy = policy or ContextPolicy()
         # === 增量摘要链 ===
-        self.summaries: List[dict] = []  # [{"step": 6, "content": "摘要..."}, ...]
+        self.summaries: list[dict] = []  # [{"step": 6, "content": "摘要..."}, ...]
         self.summary_index: int = 0      # 上次总结覆盖到 messages 的哪个索引
 
     # ============================================================
@@ -30,7 +29,7 @@ class ContextManager:
     def get_system_prompt(self, agent_name: str) -> str:
         return self.system_prompts.get(agent_name, "")
 
-    def get_system_format_prompt(self, agent_name: str) -> Dict[str, str]:
+    def get_system_format_prompt(self, agent_name: str) -> dict[str, str]:
         return {"role": "system", "content": self.system_prompts.get(agent_name, "")}
 
     # ============================================================
@@ -38,8 +37,8 @@ class ContextManager:
     # ============================================================
 
     def add_message(self, role: str, content: str, sender: str,
-                    receivers: List[str] = None, tool_call_id: Optional[str] = None,
-                    tool_name: Optional[str] = None,
+                    receivers: list[str] = None, tool_call_id: str | None = None,
+                    tool_name: str | None = None,
                     importance: str = "normal") -> None:
         msg = Message(
             role=role,
@@ -56,23 +55,23 @@ class ContextManager:
 
     @staticmethod
     def create_assistant_message(sender: str, content: str,
-                                 receivers: List[str] = None) -> Message:
+                                 receivers: list[str] = None) -> Message:
         return Message(role="assistant", sender=sender, content=content,
                        receivers=receivers or ["*"])
 
     def add_user_message(self, agent_name: str, content: str,
-                         receivers: List[str] = None) -> None:
+                         receivers: list[str] = None) -> None:
         self.add_message(role="user", content=content, sender=agent_name,
                          receivers=receivers or ["*"], importance="critical")
 
     def add_assistant_message(self, agent_name: str, content: str,
-                              receivers: List[str] = None) -> None:
+                              receivers: list[str] = None) -> None:
         self.add_message(role="assistant", content=content, sender=agent_name,
                          receivers=receivers or ["*"])
 
     def add_tool_result(self, agent_name: str, result: str, tool_name: str,
-                        tool_call_id: Optional[str] = None,
-                        receivers: List[str] = None) -> None:
+                        tool_call_id: str | None = None,
+                        receivers: list[str] = None) -> None:
         self.add_message(role="tool", sender=agent_name, content=result,
                          tool_call_id=tool_call_id, tool_name=tool_name,
                          receivers=receivers or ["*"], importance="normal")
@@ -102,7 +101,7 @@ class ContextManager:
             return self.summaries[-1]["content"]
         return ""
 
-    def get_unsummarized_messages(self) -> List[Message]:
+    def get_unsummarized_messages(self) -> list[Message]:
         """获取上次总结之后的所有消息（完整未截断）"""
         return self.messages[self.summary_index:]
 
@@ -144,7 +143,7 @@ class ContextManager:
         return f"[工具结果] {who}/{tool}: {preview}"
 
     def _format_message(self, msg: Message, agent_name: str,
-                        effective_content: str) -> Dict[str, Any]:
+                        effective_content: str) -> dict[str, Any]:
         """格式化一条消息为 LLM 可读格式"""
         # summary 角色不被 LLM API 接受，映射为 user + 前缀
         if msg.role == "summary":
@@ -163,7 +162,7 @@ class ContextManager:
         return item
 
     def get_agent_messages(self, agent_name: str,
-                           include_system_prompt: bool = True) -> List[Dict[str, Any]]:
+                           include_system_prompt: bool = True) -> list[dict[str, Any]]:
         """
         为特定 Agent 提取可见消息，应用记忆衰减策略。
 
@@ -224,26 +223,25 @@ class ContextManager:
                 else:
                     continue  # 彻底遗忘
 
-            elif msg.role == "assistant":
-                if age > self.policy.tool_max_turns * 2:
-                    continue  # 旧的 assistant 消息也遗忘
+            elif msg.role == "assistant" and age > self.policy.tool_max_turns * 2:
+                continue  # 旧的 assistant 消息也遗忘
 
             formatted.append(self._format_message(msg, agent_name, effective_content))
 
         return formatted
 
     def get_recent_messages(self, agent_name: str, limit: int = 5,
-                            include_system_prompt: bool = True) -> List[Dict[str, Any]]:
+                            include_system_prompt: bool = True) -> list[dict[str, Any]]:
         """只获取最近 N 条该 Agent 可见的消息（含衰减）"""
         all_msgs = self.get_agent_messages(agent_name, include_system_prompt)
         if len(all_msgs) <= limit + 1:
             return all_msgs
         if include_system_prompt and all_msgs:
-            return [all_msgs[0]] + all_msgs[-limit:]
+            return [all_msgs[0], *all_msgs[-limit:]]
         return all_msgs[-limit:]
 
     def get_all_messages(self, agent_name: str = None,
-                         include_system_prompt: bool = True) -> List[Dict[str, Any]]:
+                         include_system_prompt: bool = True) -> list[dict[str, Any]]:
         """获取所有消息（不做衰减，用于调试和 Curator）"""
         formatted = []
 
@@ -305,7 +303,7 @@ class ContextManager:
 
         return "\n\n".join(parts)
 
-    def collect_expired_messages(self) -> List[Message]:
+    def collect_expired_messages(self) -> list[Message]:
         """收集已过期的消息（将被压缩/删除）"""
         expired = []
         for msg in self.messages:
@@ -318,7 +316,7 @@ class ContextManager:
                 expired.append(msg)
         return expired
 
-    def mark_compressed(self, expired: List[Message]) -> None:
+    def mark_compressed(self, expired: list[Message]) -> None:
         """将已压缩的消息标记为删除（不实际删除，仅设置 step_index 使其被遗忘）"""
         for msg in expired:
             # 移到远古时间，确保下次检索时被跳过
@@ -340,7 +338,7 @@ class ContextManager:
     # 持久化（序列化/反序列化）
     # ============================================================
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """将上下文状态序列化为字典（用于持久化）"""
         return {
             "messages": [m.model_dump() for m in self.messages],
@@ -349,7 +347,7 @@ class ContextManager:
             "current_step": self.current_step,
         }
 
-    def from_dict(self, data: Dict[str, Any]) -> None:
+    def from_dict(self, data: dict[str, Any]) -> None:
         """从字典恢复上下文状态"""
         self.messages = [Message.model_validate(m) for m in data.get("messages", [])]
         self.summaries = data.get("summaries", [])
@@ -395,7 +393,7 @@ class ContextManager:
     # ============================================================
 
     def add_state_trace(self, agent_name: str, from_state: str, to_state: str,
-                        data: Optional[StateData] = None) -> None:
+                        data: StateData | None = None) -> None:
         self.state_trace.append(StateTrace(
             agent_name=agent_name, from_state=from_state, to_state=to_state, data=data))
 

@@ -1,15 +1,14 @@
-from typing import Optional, Any
-
-from src.logger import get_logger
-from src.llm import LLMClient
-
-from .statemachine import WorkerStateMachine, JudgeStateMachine, CuratorStateMachine
-from .types import *
-from .base import BaseAgent, BaseStateMachine
+from typing import Any
 
 from src.agent.context import ContextManager
 from src.agent.prompt import PromptManager
 from src.agent.tools import ToolRegistry
+from src.llm import LLMClient
+from src.logger import get_logger
+
+from .base import BaseAgent, BaseStateMachine
+from .statemachine import CuratorStateMachine, JudgeStateMachine, WorkerStateMachine
+from .types import *
 
 # Agent 策略预设
 AGENT_POLICIES = {
@@ -39,12 +38,12 @@ class WorkerAgent(BaseAgent):
     def __init__(
         self,
         name: str = "WorkerAgent",
-        llm_client: Optional[LLMClient] = None,
-        context_manager: Optional[ContextManager] = None,
-        prompt_manager: Optional[PromptManager] = None,
-        tool_registry: Optional[ToolRegistry] = None,
-        tool_names: Optional[list] = None,
-        context_policy: Optional[ContextPolicy] = None,
+        llm_client: LLMClient | None = None,
+        context_manager: ContextManager | None = None,
+        prompt_manager: PromptManager | None = None,
+        tool_registry: ToolRegistry | None = None,
+        tool_names: list | None = None,
+        context_policy: ContextPolicy | None = None,
     ):
         self._tool_names = tool_names
         if context_policy and context_manager:
@@ -140,10 +139,10 @@ class JudgeAgent(BaseAgent):
     def __init__(
         self,
         name: str = "JudgeAgent",
-        llm_client: Optional[LLMClient] = None,
-        context_manager: Optional[ContextManager] = None,
-        prompt_manager: Optional[PromptManager] = None,
-        tool_registry: Optional[ToolRegistry] = None,
+        llm_client: LLMClient | None = None,
+        context_manager: ContextManager | None = None,
+        prompt_manager: PromptManager | None = None,
+        tool_registry: ToolRegistry | None = None,
     ):
         super().__init__(name, llm_client, context_manager, prompt_manager, tool_registry)
 
@@ -208,11 +207,11 @@ class CuratorAgent(BaseAgent):
     def __init__(
         self,
         name: str = "CuratorAgent",
-        llm_client: Optional[LLMClient] = None,
-        context_manager: Optional[ContextManager] = None,
-        prompt_manager: Optional[PromptManager] = None,
-        tool_registry: Optional[ToolRegistry] = None,
-        tool_names: Optional[list] = None,
+        llm_client: LLMClient | None = None,
+        context_manager: ContextManager | None = None,
+        prompt_manager: PromptManager | None = None,
+        tool_registry: ToolRegistry | None = None,
+        tool_names: list | None = None,
     ):
         self._tool_names = tool_names
         super().__init__(name, llm_client, context_manager, prompt_manager, tool_registry)
@@ -293,7 +292,6 @@ class CuratorAgent(BaseAgent):
 # ============================================================
 
 from .registry import AgentConfig, register_agent
-from .statemachine import WorkerStateMachine, JudgeStateMachine, CuratorStateMachine
 
 register_agent(AgentConfig(
     agent_type="worker",

@@ -6,7 +6,6 @@
 3. 在 plugins.yaml 里把对应工具的 agent_type 设为新类型名
 """
 from dataclasses import dataclass
-from typing import Type, Optional, Dict
 
 
 @dataclass
@@ -16,16 +15,16 @@ class AgentConfig:
     agent_type: str                           # "worker" | "curator" | "judge"
 
     # 类引用（延迟绑定，注册时可为 None，运行时注入）
-    base_class: Optional[Type] = None         # WorkerAgent / CuratorAgent / JudgeAgent
-    streaming_wrapper: Optional[Type] = None  # StreamingWorkerAgent 等
+    base_class: type | None = None         # WorkerAgent / CuratorAgent / JudgeAgent
+    streaming_wrapper: type | None = None  # StreamingWorkerAgent 等
 
     # 状态机 & Prompt
-    state_machine_class: Optional[Type] = None
+    state_machine_class: type | None = None
     prompt_method: str = ""                   # PromptManager 上的方法名
 
     # 工具策略
     tool_filter: str = "config"               # "config" = 外部配置 / "all_matching" = agent_type 匹配 / "fixed"
-    fixed_tool_names: Optional[list] = None   # tool_filter="fixed" 时使用
+    fixed_tool_names: list | None = None   # tool_filter="fixed" 时使用
 
     # 生命周期
     auto_start_containers: bool = False       # 创建前自动启动匹配工具的容器
@@ -35,7 +34,7 @@ class AgentConfig:
 
 
 # 全局注册表
-AGENT_REGISTRY: Dict[str, AgentConfig] = {}
+AGENT_REGISTRY: dict[str, AgentConfig] = {}
 
 
 def register_agent(config: AgentConfig):
@@ -43,7 +42,7 @@ def register_agent(config: AgentConfig):
     AGENT_REGISTRY[config.agent_type] = config
 
 
-def get_agent_config(agent_type: str) -> Optional[AgentConfig]:
+def get_agent_config(agent_type: str) -> AgentConfig | None:
     """根据 agent_type 字符串获取 AgentConfig"""
     return AGENT_REGISTRY.get(agent_type)
 
