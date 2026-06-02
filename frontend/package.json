@@ -5,7 +5,12 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix",
+    "format": "prettier --write src/",
+    "test": "vitest",
+    "test:coverage": "vitest --coverage",
+    "type-check": "vue-tsc --noEmit"
   },
   "dependencies": {
     "vue": "^3.4.21",
@@ -14,11 +19,19 @@
     "element-plus": "^2.6.1"
   },
   "devDependencies": {
+    "@rushstack/eslint-patch": "^1.10.0",
     "@types/node": "^20.11.0",
+    "@vitejs/plugin-vue": "^5.0.4",
+    "@vue/eslint-config-prettier": "^9.0.0",
+    "@vue/eslint-config-typescript": "^13.0.0",
+    "@vue/test-utils": "^2.4.0",
+    "eslint": "^8.57.0",
+    "eslint-plugin-vue": "^9.23.0",
+    "prettier": "^3.2.0",
+    "sass": "^1.72.0",
     "typescript": "^5.4.2",
     "vite": "^5.2.0",
-    "vue-tsc": "^2.0.0",
-    "sass": "^1.72.0",
-    "@vitejs/plugin-vue": "^5.0.4"
+    "vitest": "^1.6.0",
+    "vue-tsc": "^2.0.0"
   }
 }
