@@ -212,10 +212,11 @@ def _resolve_tool_names(agent_type: str) -> list[str]:
     return []
 
 
-def _auto_start_containers_for_tools(tool_names: list[str]):
-    """为指定工具列表自动启动容器"""
+def _auto_start_containers_for_tools(tool_names: list[str]) -> list[str]:
+    """为指定工具列表自动启动容器，返回启动失败的工具名列表"""
+    failed_tools = []
     if not _plugin_manager:
-        return
+        return failed_tools
     from src.agent.tools import ExecContainerPlugin
     for name in tool_names:
         tool = _tool_registry.get_tool(name)
@@ -247,6 +248,10 @@ def _auto_start_containers_for_tools(tool_names: list[str]):
             if container:
                 tool.bind_container(container)
                 logger.info(f"容器已自动启动: {tool.container_name} (工具: {name})")
+        else:
+            logger.warning(f"容器启动失败: {tool.container_name} (工具: {name})")
+            failed_tools.append(name)
+    return failed_tools
 
 
 def _create_agent_for_type(agent_type: str, request_id: str) -> BaseAgent:

@@ -5,10 +5,15 @@
         <component :is="Component" />
       </keep-alive>
     </router-view>
+    <Toast v-if="toastState" :message="toastState.message" :type="toastState.type" :duration="toastState.duration" />
   </div>
 </template>
 
 <script setup lang="ts">
+import Toast from './components/Toast.vue'
+import { useToast } from './composables/useToast'
+
+const { toastState } = useToast()
 </script>
 
 <style lang="scss">

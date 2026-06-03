@@ -258,7 +258,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { markConfigured } from '@/router'
 import api from '@/api/agent'
@@ -406,15 +406,28 @@ async function loadSetupStatus() {
   }
 }
 
+// 标记各 tab 是否已加载
+const pluginsLoaded = ref(false)
+const marketplaceLoaded = ref(false)
+
 onMounted(async () => {
-  // 并行加载所有 tab 数据，之后切换 tab 瞬间完成
+  // 首屏只加载"环境与配置" tab 需要的数据
   await Promise.all([
     loadEnvironments(),
     loadSetupStatus(),
-    loadPluginConfig(),
-    loadInstalledPlugins(),
-    loadMarketplace(),
   ])
+})
+
+// 切换 tab 时懒加载数据
+watch(activeTab, (tab) => {
+  if (tab === 'plugins' && !pluginsLoaded.value) {
+    pluginsLoaded.value = true
+    Promise.all([loadPluginConfig(), loadInstalledPlugins()])
+  }
+  if (tab === 'market' && !marketplaceLoaded.value) {
+    marketplaceLoaded.value = true
+    loadMarketplace()
+  }
 })
 
 async function saveConfig() {

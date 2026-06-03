@@ -33,12 +33,14 @@ import { ref, onMounted, computed, watch } from 'vue'
 import api from '@/api/agent'
 import { updateSessionToolNames } from '@/api/config'
 import { useChatStore } from '@/stores/chat'
+import { useToast } from '@/composables/useToast'
 
 defineEmits<{
   (e: 'navigate'): void
 }>()
 
 const chatStore = useChatStore()
+const toast = useToast()
 const availableTools = ref<any[]>([])
 const selectedTools = ref<string[]>([])
 const savedTools = ref<string[]>([])
@@ -76,8 +78,10 @@ async function saveTools() {
     }
     savedTools.value = [...selectedTools.value]
     chatStore.toolsUpdatedAt = Date.now()
+    toast.success('工具配置已保存')
   } catch (e) {
     console.error('保存工具配置失败:', e)
+    toast.error('保存工具配置失败')
   } finally {
     saving.value = false
   }

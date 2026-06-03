@@ -163,6 +163,18 @@ async function handleSelectSession(sessionId: string) {
     // 恢复完成，关闭加载标志
     setLoadingSession(false)
 
+    // 检查是否有容器启动失败的工具
+    if (data.failed_tools && data.failed_tools.length > 0) {
+      chatStore.pushMessage({
+        role: 'system',
+        content: `⚠️ 以下工具的容器启动失败，相关功能不可用：${data.failed_tools.join(', ')}\n请在工具设置页面手动启动容器。`,
+        timestamp: new Date().toLocaleTimeString(),
+        thought: '',
+        type: 'text',
+        agent: 'System',
+      })
+    }
+
     emit('resume-session', {
       session_id: sessionId,
       messages: data.messages,
