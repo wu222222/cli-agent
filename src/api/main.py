@@ -78,10 +78,6 @@ if os.path.exists(FRONTEND_DIST):
     app.add_middleware(FrontendMiddleware)
     logger.info(f"前端静态文件服务已启用: {FRONTEND_DIST}")
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-
 
 # ── WebSocket: 容器终端 ──────────────────────────────────
 
