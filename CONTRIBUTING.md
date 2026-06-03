@@ -4,12 +4,47 @@ Thank you for your interest in contributing! This document provides guidelines a
 
 ## Table of Contents
 
+- [Development Philosophy](#development-philosophy)
 - [Architecture Overview](#architecture-overview)
 - [Development Setup](#development-setup)
 - [Code Standards](#code-standards)
 - [Git Workflow](#git-workflow)
 - [Testing](#testing)
 - [Building & Releasing](#building--releasing)
+
+---
+
+## Development Philosophy
+
+### 1. Don't Be Overconfident — Ask Before Acting
+
+- When encountering an uncertain problem, **present options to the user first** rather than blindly implementing a solution
+- If there are multiple possible approaches, **list the pros and cons** of each before proceeding
+- If you're unsure about the root cause, **discuss your analysis** with the user before coding
+
+### 2. Communicate More, Code Less
+
+- **Discuss before implementing**: Talk through the design with the user to find a solution that better fits their needs
+- **Present trade-offs**: "Approach A is faster but harder to maintain; Approach B is slower but cleaner. Which do you prefer?"
+- **Don't assume**: What seems "obvious" to you may not match the user's mental model
+
+### 3. Sometimes the Best Code Is No Code
+
+- Before writing code, ask: **"Is there a simpler way to solve this?"**
+- Consider: Could a configuration change, a UI tweak, or a workflow adjustment solve the problem without new code?
+- **Think twice, code once**: Spending 5 minutes discussing can save hours of refactoring
+
+### 4. User Experience First
+
+- **Every interaction matters**: Loading states, error messages, confirmations — these shape the user's trust
+- **Fail gracefully**: When something goes wrong, tell the user what happened and what they can do about it
+- **Respect the user's time**: Don't make them wait without feedback, don't make them click without purpose
+
+### 5. Incremental Improvement
+
+- **Small, tested changes** are better than big, risky rewrites
+- **Fix one thing at a time** — verify it works, then move to the next
+- **Document what you learned** — if you found a tricky issue, add a comment or update the docs
 
 ---
 
