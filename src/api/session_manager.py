@@ -128,6 +128,18 @@ class SessionManager:
             logger.error(f"加载会话失败: {session_id} - {e}")
             return None
 
+    def save_session(self, session_id: str, session_data: dict) -> bool:
+        """保存整个会话数据"""
+        filepath = self._session_path(session_id)
+        try:
+            session_data["updated_at"] = datetime.now().isoformat()
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(session_data, f, ensure_ascii=False, indent=2)
+            return True
+        except Exception as e:
+            logger.error(f"保存会话失败: {session_id} - {e}")
+            return False
+
     def delete_session(self, session_id: str) -> bool:
         """删除会话"""
         filepath = self._session_path(session_id)
