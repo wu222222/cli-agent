@@ -63,8 +63,11 @@ if os.path.exists(FRONTEND_DIST):
     class FrontendMiddleware(BaseHTTPMiddleware):
         """非 /api 请求 → 返回 dist/index.html（SPA fallback）"""
         async def dispatch(self, request, call_next):
+            # 调试日志
+            logger.info(f"[Middleware] 请求: {request.method} {request.url.path}")
             # 排除 API 和 WebSocket 请求
             if request.url.path.startswith("/api") or request.url.path.startswith("/ws"):
+                logger.info(f"[Middleware] 跳过: {request.url.path}")
                 return await call_next(request)
             # 尝试返回静态文件，不存在则 fallback 到 index.html
             file_path = os.path.join(FRONTEND_DIST, request.url.path.lstrip("/"))
@@ -85,8 +88,10 @@ if __name__ == "__main__":
 @app.websocket("/ws/terminal/{container_name}")
 async def terminal_websocket(websocket: WebSocket, container_name: str):
     """WebSocket 终端：连接到 Docker 容器的交互式 shell"""
+    logger.info(f"[Terminal] 收到 WebSocket 请求: {container_name}")
+    logger.info(f"[Terminal] Headers: {dict(websocket.headers)}")
     await websocket.accept()
-    logger.info(f"[Terminal] WebSocket 连接: {container_name}")
+    logger.info(f"[Terminal] WebSocket 已接受: {container_name}")
 
     try:
         import docker

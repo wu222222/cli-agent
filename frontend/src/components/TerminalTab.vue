@@ -109,14 +109,18 @@ function connectTerminal() {
     // 连接 WebSocket
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = window.location.host
-    ws = new WebSocket(`${protocol}//${host}/ws/terminal/${selectedContainer.value}`)
+    const url = `${protocol}//${host}/ws/terminal/${selectedContainer.value}`
+    console.log('[Terminal] 连接 WebSocket:', url)
+    ws = new WebSocket(url)
 
     ws.onopen = () => {
+      console.log('[Terminal] WebSocket 已连接')
       connected.value = true
       terminal?.writeln('\x1b[32m✓ 已连接到 ' + selectedContainer.value + '\x1b[0m')
     }
 
     ws.onmessage = (event) => {
+      console.log('[Terminal] 收到消息:', event.data)
       if (event.data instanceof Blob) {
         event.data.arrayBuffer().then((buffer) => {
           terminal?.write(new Uint8Array(buffer))
@@ -126,12 +130,14 @@ function connectTerminal() {
       }
     }
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
+      console.log('[Terminal] WebSocket 关闭:', event.code, event.reason)
       connected.value = false
       terminal?.writeln('\r\n\x1b[31m✗ 连接已断开\x1b[0m')
     }
 
-    ws.onerror = () => {
+    ws.onerror = (error) => {
+      console.error('[Terminal] WebSocket 错误:', error)
       connected.value = false
       terminal?.writeln('\r\n\x1b[31m✗ 连接错误\x1b[0m')
     }
