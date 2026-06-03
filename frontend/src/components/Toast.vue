@@ -71,43 +71,89 @@ watch(() => props.message, (msg) => {
 <style scoped>
 .toast {
   position: fixed;
-  top: 20px;
-  left: 50%;
-  transform: translateX(-50%);
+  bottom: 20px;
+  right: 20px;
   z-index: 10000;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 20px;
-  border-radius: 8px;
-  font-size: 14px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  backdrop-filter: blur(10px);
+  gap: 10px;
+  padding: 14px 18px;
+  border-radius: 10px;
+  font-size: 13px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(12px);
+  max-width: 400px;
 }
 
 .toast.success {
-  background: rgba(34, 197, 94, 0.9);
+  background: rgba(34, 197, 94, 0.95);
   color: white;
 }
 
 .toast.error {
-  background: rgba(239, 68, 68, 0.9);
+  background: rgba(239, 68, 68, 0.95);
   color: white;
 }
 
 .toast.warning {
-  background: rgba(234, 179, 8, 0.9);
-  color: black;
+  background: rgba(45, 46, 58, 0.95);
+  color: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(234, 179, 8, 0.4);
 }
 
 .toast.info {
-  background: rgba(59, 130, 246, 0.9);
+  background: rgba(59, 130, 246, 0.95);
   color: white;
 }
 
 .toast-icon {
-  font-size: 16px;
-  font-weight: bold;
+  font-size: 15px;
+  font-weight: 600;
+  opacity: 0.9;
+}
+
+.toast-message {
+  flex: 1;
+  line-height: 1.4;
+}
+
+.toast-action {
+  padding: 6px 14px;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.toast-action:hover {
+  background: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.toast-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: none;
+  border: none;
+  color: inherit;
+  opacity: 0.5;
+  cursor: pointer;
+  font-size: 18px;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+
+.toast-close:hover {
+  opacity: 0.8;
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .toast-enter-active,
@@ -118,6 +164,6 @@ watch(() => props.message, (msg) => {
 .toast-enter-from,
 .toast-leave-to {
   opacity: 0;
-  transform: translateX(-50%) translateY(-20px);
+  transform: translateY(20px);
 }
 </style>
