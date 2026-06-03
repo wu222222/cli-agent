@@ -14,7 +14,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, onMounted } from 'vue'
 
 const props = defineProps<{
   message: string
@@ -43,15 +43,27 @@ function handleAction() {
   visible.value = false
 }
 
+function showToast() {
+  visible.value = true
+  // 如果有操作按钮，不自动关闭
+  if (!props.actionText) {
+    setTimeout(() => {
+      visible.value = false
+    }, props.duration || 3000)
+  }
+}
+
+// 组件挂载时显示（v-if 创建时）
+onMounted(() => {
+  if (props.message) {
+    showToast()
+  }
+})
+
+// 监听后续变化
 watch(() => props.message, (msg) => {
   if (msg) {
-    visible.value = true
-    // 如果有操作按钮，不自动关闭
-    if (!props.actionText) {
-      setTimeout(() => {
-        visible.value = false
-      }, props.duration || 3000)
-    }
+    showToast()
   }
 })
 </script>
