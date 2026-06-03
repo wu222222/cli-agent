@@ -3,7 +3,7 @@ import logging
 import os
 import sys
 
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 # Windows: PEP 540 UTF-8 模式 — 必须在任何 I/O 之前设置
@@ -73,6 +73,81 @@ if os.path.exists(FRONTEND_DIST):
 
     app.add_middleware(FrontendMiddleware)
     logger.info(f"前端静态文件服务已启用: {FRONTEND_DIST}")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+# ── WebSocket: 容器终端 ──────────────────────────────────
+
+@app.websocket("/ws/terminal/{container_name}")
+async def terminal_websocket(websocket: WebSocket, container_name: str):
+    """WebSocket 终端：连接到 Docker 容器的交互式 shell"""
+    await websocket.accept()
+    logger.info(f"[Terminal] WebSocket 连接: {container_name}")
+
+    try:
+        import docker
+
+        from src.executor.client import DockerClientFactory
+
+        client = DockerClientFactory.get()
+        container = client.containers.get(container_name)
+
+        # 创建交互式 shell
+        exec_obj = container.exec_run(
+            cmd=["/bin/sh", "-i"],
+            stdin=True,
+            stdout=True,
+            stderr=True,
+            tty=True,
+            socket=True,
+        )
+
+        # 获取 socket
+        sock = exec_obj.output._sock if hasattr(exec_obj.output, '_sock') else exec_obj.output
+
+        async def read_from_container():
+            """从容器读取输出并发送到 WebSocket"""
+            try:
+                while True:
+                    # 在线程池中执行阻塞读取
+                    loop = asyncio.get_event_loop()
+                    data = await loop.run_in_executor(None, lambda: sock.recv(4096))
+                    if not data:
+                        break
+                    await websocket.send_bytes(data)
+            except Exception as e:
+                logger.debug(f"[Terminal] 读取结束: {e}")
+
+        async def write_to_container():
+            """从 WebSocket 读取输入并发送到容器"""
+            try:
+                while True:
+                    data = await websocket.receive_bytes()
+                    sock.send(data)
+            except WebSocketDisconnect:
+                logger.info(f"[Terminal] 客户端断开: {container_name}")
+            except Exception as e:
+                logger.debug(f"[Terminal] 写入结束: {e}")
+
+        # 并行运行读写
+        await asyncio.gather(
+            read_from_container(),
+            write_to_container(),
+        )
+
+    except docker.errors.NotFound:
+        await websocket.send_text(f"\r\n❌ 容器不存在: {container_name}\r\n")
+        await websocket.close()
+    except Exception as e:
+        logger.error(f"[Terminal] 错误: {e}")
+        await websocket.send_text(f"\r\n❌ 错误: {e}\r\n")
+        await websocket.close()
+    finally:
+        logger.info(f"[Terminal] 连接关闭: {container_name}")
+
 
 if __name__ == "__main__":
     import uvicorn

@@ -61,3 +61,33 @@ class ComposePluginInfo(BaseModel):
 class PluginActionResponse(BaseModel):
     success: bool
     message: str
+
+
+# === 权限管理 ===
+
+class PermissionRule(BaseModel):
+    """权限白名单规则"""
+    id: str | None = None
+    tool: str  # 工具名，如 alpine_shell
+    command_pattern: str  # 命令模式，如 "ls *" 或 "cat /tmp/*"
+    description: str = ""  # 用户备注
+    created_at: str | None = None
+
+
+class PermissionCreateRequest(BaseModel):
+    """添加权限规则请求"""
+    tool: str
+    command_pattern: str
+    description: str = ""
+
+
+class PermissionCheckRequest(BaseModel):
+    """检查命令是否在白名单中"""
+    tool: str
+    command: str
+
+
+class PermissionCheckResponse(BaseModel):
+    """检查结果"""
+    allowed: bool
+    reason: str = ""  # 为什么允许/不允许

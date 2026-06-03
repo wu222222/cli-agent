@@ -1435,6 +1435,15 @@ async def resume_session(session_id: str):
     else:
         logger.info("[resume_session] 无保存的上下文，已清空")
 
+    # 调试日志：打印返回数据
+    logger.info("[resume_session] 返回数据:")
+    logger.info(f"  - session_id: {session_id}")
+    logger.info(f"  - tool_names: {session_tool_names}")
+    logger.info(f"  - failed_tools: {failed_tools}")
+    logger.info(f"  - stopped_composes: {stopped_composes}")
+    logger.info(f"  - stopped_composes 类型: {type(stopped_composes)}")
+    logger.info(f"  - stopped_composes 长度: {len(stopped_composes)}")
+
     return {
         "session_id": session_id,
         "tool_names": session_tool_names,
@@ -1478,3 +1487,131 @@ async def save_session_message(session_id: str, body: dict):
     message = body.get("message", {})
     success = sm.save_message(session_id, message)
     return {"success": success}
+
+
+# === 权限管理 API ===
+
+@router.get("/agent/permissions")
+async def get_permissions(session_id: str = Query(...)):
+    """获取当前会话的权限白名单"""
+    sm = get_session_manager()
+    if not sm:
+        return {"permissions": []}
+    session = sm.load_session(session_id)
+    if not session:
+        return {"permissions": []}
+    return {"permissions": session.get("permissions", [])}
+
+
+@router.post("/agent/permissions")
+async def add_permission(session_id: str = Query(...), rule: dict = None):
+    """添加权限规则"""
+    if not rule:
+        return {"success": False, "message": "规则不能为空"}
+
+    sm = get_session_manager()
+    if not sm:
+        return {"success": False, "message": "SessionManager 未初始化"}
+
+    session = sm.load_session(session_id)
+    if not session:
+        return {"success": False, "message": "会话不存在"}
+
+    # 生成规则 ID
+    import datetime
+    permissions = session.get("permissions", [])
+    new_rule = {
+        "id": str(uuid.uuid4())[:8],
+        "tool": rule.get("tool", ""),
+        "command_pattern": rule.get("command_pattern", ""),
+        "description": rule.get("description", ""),
+        "created_at": datetime.datetime.now().isoformat(),
+    }
+    permissions.append(new_rule)
+
+    # 保存到 session
+    session["permissions"] = permissions
+    sm.save_session(session_id, session)
+
+    logger.info(f"[permissions] 添加规则: {new_rule}")
+    return {"success": True, "rule": new_rule}
+
+
+@router.delete("/agent/permissions/{rule_id}")
+async def delete_permission(session_id: str = Query(...), rule_id: str = ""):
+    """删除权限规则"""
+    sm = get_session_manager()
+    if not sm:
+        return {"success": False, "message": "SessionManager 未初始化"}
+
+    session = sm.load_session(session_id)
+    if not session:
+        return {"success": False, "message": "会话不存在"}
+
+    permissions = session.get("permissions", [])
+    session["permissions"] = [p for p in permissions if p.get("id") != rule_id]
+    sm.save_session(session_id, session)
+
+    logger.info(f"[permissions] 删除规则: {rule_id}")
+    return {"success": True}
+
+
+@router.delete("/agent/permissions")
+async def clear_permissions(session_id: str = Query(...)):
+    """清空权限白名单"""
+    sm = get_session_manager()
+    if not sm:
+        return {"success": False, "message": "SessionManager 未初始化"}
+
+    session = sm.load_session(session_id)
+    if not session:
+        return {"success": False, "message": "会话不存在"}
+
+    session["permissions"] = []
+    sm.save_session(session_id, session)
+
+    logger.info(f"[permissions] 清空白名单: {session_id}")
+    return {"success": True}
+
+
+@router.post("/agent/permissions/check")
+async def check_permission(body: dict):
+    """检查命令是否在白名单中"""
+    tool = body.get("tool", "")
+    command = body.get("command", "")
+    session_id = body.get("session_id", "")
+
+    if not session_id:
+        return {"allowed": False, "reason": "无会话ID"}
+
+    sm = get_session_manager()
+    if not sm:
+        return {"allowed": False, "reason": "SessionManager 未初始化"}
+
+    session = sm.load_session(session_id)
+    if not session:
+        return {"allowed": False, "reason": "会话不存在"}
+
+    permissions = session.get("permissions", [])
+
+    # 检查是否在白名单中
+    for rule in permissions:
+        if rule.get("tool") == tool:
+            pattern = rule.get("command_pattern", "")
+            if _match_command(command, pattern):
+                return {"allowed": True, "reason": f"匹配规则: {pattern}"}
+
+    return {"allowed": False, "reason": "不在白名单中"}
+
+
+def _match_command(command: str, pattern: str) -> bool:
+    """匹配命令和模式（支持通配符）"""
+    import fnmatch
+    # 精确匹配
+    if command == pattern:
+        return True
+    # 通配符匹配
+    if fnmatch.fnmatch(command, pattern):
+        return True
+    # 前缀匹配（pattern 以 * 结尾）
+    return pattern.endswith("*") and command.startswith(pattern[:-1])

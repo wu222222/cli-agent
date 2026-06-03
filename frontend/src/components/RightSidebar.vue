@@ -13,6 +13,14 @@
       <div v-show="activeTab === 'tools'" class="tab-pane">
         <ToolsTab @navigate="activeTab = null" />
       </div>
+      <!-- 权限 tab -->
+      <div v-show="activeTab === 'permissions'" class="tab-pane">
+        <PermissionTab ref="permissionTabRef" />
+      </div>
+      <!-- 终端 tab -->
+      <div v-show="activeTab === 'terminal'" class="tab-pane">
+        <TerminalTab ref="terminalTabRef" />
+      </div>
     </div>
 
     <!-- 图标栏（始终在最右侧） -->
@@ -41,6 +49,28 @@
           <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
         </svg>
       </div>
+      <div
+        class="icon-btn"
+        :class="{ active: activeTab === 'permissions' }"
+        @click="toggleTab('permissions')"
+        title="权限"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        </svg>
+      </div>
+      <div
+        class="icon-btn"
+        :class="{ active: activeTab === 'terminal' }"
+        @click="toggleTab('terminal')"
+        title="终端"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+          <polyline points="4 17 10 11 4 5"/>
+          <line x1="12" y1="19" x2="20" y2="19"/>
+        </svg>
+      </div>
     </div>
   </div>
 </template>
@@ -50,23 +80,33 @@ import { ref, watch } from 'vue'
 import { useChatStore } from '@/stores/chat'
 import ContextTab from './ContextTab.vue'
 import ToolsTab from './ToolsTab.vue'
+import PermissionTab from './PermissionTab.vue'
+import TerminalTab from './TerminalTab.vue'
 
 const chatStore = useChatStore()
 const activeTab = ref<string | null>(null)
 const contextTabRef = ref<InstanceType<typeof ContextTab> | null>(null)
+const permissionTabRef = ref<InstanceType<typeof PermissionTab> | null>(null)
+const terminalTabRef = ref<InstanceType<typeof TerminalTab> | null>(null)
 const panelWidth = ref(280)
 
 function toggleTab(tab: string) {
   activeTab.value = activeTab.value === tab ? null : tab
-  // 打开上下文 tab 时刷新数据
+  // 打开 tab 时刷新数据
   if (activeTab.value === 'context') {
     contextTabRef.value?.fetchContext()
+  }
+  if (activeTab.value === 'permissions') {
+    permissionTabRef.value?.loadPermissions()
+  }
+  if (activeTab.value === 'terminal') {
+    terminalTabRef.value?.loadContainers()
   }
 }
 
 // 切换会话时重置 tab（上下文数据由 ContextTab 自己处理）
 watch(() => chatStore.currentSessionId, () => {
-  // 不自动切换 tab，但 ContextTab 内部会清空并刷新数据
+  // 不自动切换 tab，但各 Tab 内部会清空并刷新数据
 })
 
 // --- 拖拽调整宽度 ---

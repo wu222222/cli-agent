@@ -43,6 +43,9 @@
         <button class="btn-accept" @click="handleAccept">
           {{ guidance ? '执行 + 引导' : '执行' }}
         </button>
+        <button class="btn-always" @click="handleAlwaysExecute" title="同类命令以后都自动执行">
+          ⚡ 一直执行
+        </button>
       </div>
     </div>
   </div>
@@ -61,6 +64,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'confirm', guidance: string): void
   (e: 'cancel', guidance: string): void
+  (e: 'always-execute', data: { tool: string; command: string }): void
 }>()
 
 const guidance = ref('')
@@ -81,6 +85,16 @@ function handleAccept() {
 
 function handleReject() {
   emit('cancel', guidance.value)
+  guidance.value = ''
+}
+
+function handleAlwaysExecute() {
+  emit('always-execute', {
+    tool: props.toolName || '',
+    command: props.command,
+  })
+  // 同时执行本次命令
+  emit('confirm', guidance.value)
   guidance.value = ''
 }
 </script>
@@ -263,5 +277,21 @@ function handleReject() {
 
 .btn-accept:hover {
   background: #1d4ed8;
+}
+
+.btn-always {
+  padding: 8px 16px;
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  border-radius: 6px;
+  color: #22c55e;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-always:hover {
+  background: rgba(34, 197, 94, 0.25);
+  border-color: rgba(34, 197, 94, 0.5);
 }
 </style>

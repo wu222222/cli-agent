@@ -42,6 +42,7 @@
           :tool-name="chatStore.pendingToolName"
           @confirm="handleConfirm"
           @cancel="handleCancel"
+          @always-execute="handleAlwaysExecute"
         />
 
         <div class="chat-input">
@@ -420,6 +421,28 @@ async function handleCancel(guidance: string = '') {
     type: 'text',
     agent: 'System',
   })
+}
+
+async function handleAlwaysExecute(data: { tool: string; command: string }) {
+  // 添加到权限白名单
+  if (!chatStore.currentSessionId) return
+  try {
+    await api.post(`/agent/permissions?session_id=${chatStore.currentSessionId}`, {
+      tool: data.tool,
+      command_pattern: data.command,
+      description: '用户在确认框中添加',
+    })
+    chatStore.pushMessage({
+      role: 'system',
+      content: `✅ 已添加到白名单: ${data.tool} - ${data.command}\n同类命令以后将自动执行。`,
+      timestamp: new Date().toLocaleTimeString(),
+      thought: '',
+      type: 'text',
+      agent: 'System',
+    })
+  } catch (e) {
+    console.error('添加权限失败:', e)
+  }
 }
 
 function stopAgent() {
