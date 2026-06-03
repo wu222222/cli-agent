@@ -866,7 +866,19 @@ async def reject_command(request: ChatRequest):
         set_pending_agent(None)
         waiting_state = agent.state_machine._states[AgentState.WAITING_CONFIRMATION]
         if isinstance(waiting_state.data, ThinkingToExecutingData):
+            # 获取被拒绝的命令信息
+            rejected_cmd = waiting_state.data.response.action_params.get('command', '')
+            rejected_tool = waiting_state.data.response.tool_name or ''
             waiting_state.data.confirmed = False
+
+            # 在上下文中标记命令为已拒绝
+            agent.context_manager.add_tool_result(
+                agent_name=agent.name,
+                tool_name=rejected_tool,
+                result=f"[命令被用户拒绝] {rejected_cmd}\n用户拒绝了此命令，请不要再尝试执行。",
+            )
+            logger.info(f"[reject] 命令已拒绝并标记: {rejected_tool} - {rejected_cmd}")
+
         import contextlib
         with contextlib.suppress(Exception):
             await agent.step()
