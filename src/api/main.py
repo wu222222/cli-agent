@@ -63,7 +63,8 @@ if os.path.exists(FRONTEND_DIST):
     class FrontendMiddleware(BaseHTTPMiddleware):
         """非 /api 请求 → 返回 dist/index.html（SPA fallback）"""
         async def dispatch(self, request, call_next):
-            if request.url.path.startswith("/api"):
+            # 排除 API 和 WebSocket 请求
+            if request.url.path.startswith("/api") or request.url.path.startswith("/ws"):
                 return await call_next(request)
             # 尝试返回静态文件，不存在则 fallback 到 index.html
             file_path = os.path.join(FRONTEND_DIST, request.url.path.lstrip("/"))
