@@ -64,6 +64,8 @@ export const resumeSession = async (sessionId: string): Promise<{
   session_id: string;
   tool_names: string[];
   messages: any[];
+  failed_tools?: string[];
+  stopped_composes?: string[];
 }> => {
   const response = await api.post(`/agent/sessions/${sessionId}/resume`)
   return response.data

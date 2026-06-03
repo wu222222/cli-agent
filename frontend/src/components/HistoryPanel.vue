@@ -140,9 +140,11 @@ async function handleNewChat() {
 
 // 选择会话
 async function handleSelectSession(sessionId: string) {
+  console.log('[HistoryPanel] handleSelectSession called:', sessionId)
   if (currentSessionId.value === sessionId) return
   try {
     const data = await resumeSession(sessionId)
+    console.log('[HistoryPanel] resumeSession returned:', JSON.stringify(data).slice(0, 200))
     currentSessionId.value = sessionId
 
     // 设置加载标志，防止 pushMessage 重复保存到 session
@@ -166,6 +168,11 @@ async function handleSelectSession(sessionId: string) {
     // 恢复完成，关闭加载标志
     setLoadingSession(false)
 
+    // 调试日志
+    console.log('[HistoryPanel] resumeSession response:', data)
+    console.log('[HistoryPanel] failed_tools:', data.failed_tools)
+    console.log('[HistoryPanel] stopped_composes:', data.stopped_composes)
+
     // 检查是否有容器启动失败的工具
     if (data.failed_tools && data.failed_tools.length > 0) {
       chatStore.pushMessage({
@@ -181,11 +188,15 @@ async function handleSelectSession(sessionId: string) {
     // 检查是否有未运行的 compose 插件
     if (data.stopped_composes && data.stopped_composes.length > 0) {
       const composeNames = data.stopped_composes.join(', ')
+      const composesToStart = [...data.stopped_composes]
+      console.log('[HistoryPanel] Showing toast for composes:', composeNames)
       toast.action(
         `以下 Compose 插件未运行：${composeNames}`,
         '启动插件',
-        () => startComposes(data.stopped_composes)
+        () => startComposes(composesToStart)
       )
+    } else {
+      console.log('[HistoryPanel] No stopped composes, skipping toast')
     }
 
     emit('resume-session', {
