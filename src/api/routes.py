@@ -1421,7 +1421,7 @@ async def resume_session(session_id: str):
     # 自动启动相关容器
     _get_or_init_components()
     from .services import _auto_start_containers_for_tools
-    failed_tools = _auto_start_containers_for_tools(session_tool_names)
+    failed_tools, stopped_composes = _auto_start_containers_for_tools(session_tool_names)
 
     # 恢复上下文状态（先清空旧上下文，再加载新 session 的）
     from .services import get_context_manager
@@ -1440,6 +1440,7 @@ async def resume_session(session_id: str):
         "tool_names": session_tool_names,
         "messages": session.get("messages", []),
         "failed_tools": failed_tools,  # 启动失败的工具列表
+        "stopped_composes": stopped_composes,  # 未运行的 compose 插件列表
     }
 
 

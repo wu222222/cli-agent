@@ -212,21 +212,43 @@ def _resolve_tool_names(agent_type: str) -> list[str]:
     return []
 
 
-def _auto_start_containers_for_tools(tool_names: list[str]) -> list[str]:
-    """为指定工具列表自动启动容器，返回启动失败的工具名列表"""
+def _auto_start_containers_for_tools(tool_names: list[str]) -> tuple[list[str], list[str]]:
+    """为指定工具列表自动启动容器，返回 (启动失败的工具名列表, 未运行的 compose 插件名列表)"""
     failed_tools = []
+    stopped_composes = set()  # 未运行的 compose 插件名
+
     if not _plugin_manager:
-        return failed_tools
+        return failed_tools, list(stopped_composes)
+
     from src.agent.tools import ExecContainerPlugin
+
+    # 检查所有工具，收集需要的 compose 插件
+    needed_composes = set()
+    for name in tool_names:
+        tool = _tool_registry.get_tool(name)
+        if tool and hasattr(tool, '_parent_compose') and tool._parent_compose:
+            needed_composes.add(tool._parent_compose)
+
+    # 检查 compose 插件是否运行
+    for compose_name in needed_composes:
+        compose = _tool_registry.get_compose(compose_name)
+        if compose and not compose.running:
+            stopped_composes.add(compose_name)
+            logger.warning(f"Compose 插件未运行: {compose_name}")
+
+    # 尝试启动独立容器（非 compose 子工具）
     for name in tool_names:
         tool = _tool_registry.get_tool(name)
         if not isinstance(tool, ExecContainerPlugin):
+            continue
+        # 跳过 compose 子工具（由 compose 管理）
+        if hasattr(tool, '_parent_compose') and tool._parent_compose:
             continue
         if not tool.container_name:
             continue
         if tool._container:
             continue
-        image = "alpine:latest"  # 默认镜像，compose 子工具不需要
+        image = "alpine:latest"
         volumes = {}
         for m in getattr(tool, 'mount_dirs', []):
             parts = m.split(':')
@@ -251,7 +273,8 @@ def _auto_start_containers_for_tools(tool_names: list[str]) -> list[str]:
         else:
             logger.warning(f"容器启动失败: {tool.container_name} (工具: {name})")
             failed_tools.append(name)
-    return failed_tools
+
+    return failed_tools, list(stopped_composes)
 
 
 def _create_agent_for_type(agent_type: str, request_id: str) -> BaseAgent:

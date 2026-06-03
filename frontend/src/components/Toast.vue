@@ -4,6 +4,10 @@
       <div v-if="visible" class="toast" :class="type">
         <span class="toast-icon">{{ icon }}</span>
         <span class="toast-message">{{ message }}</span>
+        <button v-if="actionText" class="toast-action" @click="handleAction">
+          {{ actionText }}
+        </button>
+        <button class="toast-close" @click="visible = false">×</button>
       </div>
     </Transition>
   </Teleport>
@@ -16,6 +20,11 @@ const props = defineProps<{
   message: string
   type?: 'success' | 'error' | 'warning' | 'info'
   duration?: number
+  actionText?: string
+}>()
+
+const emit = defineEmits<{
+  (e: 'action'): void
 }>()
 
 const visible = ref(false)
@@ -29,12 +38,20 @@ const icon = computed(() => {
   }
 })
 
+function handleAction() {
+  emit('action')
+  visible.value = false
+}
+
 watch(() => props.message, (msg) => {
   if (msg) {
     visible.value = true
-    setTimeout(() => {
-      visible.value = false
-    }, props.duration || 3000)
+    // 如果有操作按钮，不自动关闭
+    if (!props.actionText) {
+      setTimeout(() => {
+        visible.value = false
+      }, props.duration || 3000)
+    }
   }
 })
 </script>

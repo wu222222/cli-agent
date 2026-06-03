@@ -97,6 +97,8 @@ import {
   updateSessionTitle,
 } from '@/api/config'
 import { useChatStore, setLoadingSession } from '@/stores/chat'
+import { useToast } from '@/composables/useToast'
+import api from '@/api/agent'
 
 const emit = defineEmits<{
   (e: 'new-chat'): void
@@ -104,6 +106,7 @@ const emit = defineEmits<{
 }>()
 
 const chatStore = useChatStore()
+const toast = useToast()
 const isCollapsed = ref(false)
 const sessions = ref<SessionInfo[]>([])
 const currentSessionId = ref<string | null>(null)
@@ -175,6 +178,16 @@ async function handleSelectSession(sessionId: string) {
       })
     }
 
+    // 检查是否有未运行的 compose 插件
+    if (data.stopped_composes && data.stopped_composes.length > 0) {
+      const composeNames = data.stopped_composes.join(', ')
+      toast.action(
+        `以下 Compose 插件未运行：${composeNames}`,
+        '启动插件',
+        () => startComposes(data.stopped_composes)
+      )
+    }
+
     emit('resume-session', {
       session_id: sessionId,
       messages: data.messages,
@@ -182,6 +195,27 @@ async function handleSelectSession(sessionId: string) {
     })
   } catch (e) {
     console.error('恢复会话失败:', e)
+  }
+}
+
+// 启动 compose 插件
+async function startComposes(composeNames: string[]) {
+  for (const name of composeNames) {
+    try {
+      toast.info(`正在启动 ${name}...`)
+      const resp = await api.post(`/plugins/${name}/start`)
+      if (resp.data.success) {
+        toast.success(`${name} 已启动`)
+      } else {
+        toast.error(`启动 ${name} 失败: ${resp.data.message}`)
+      }
+    } catch (e: any) {
+      toast.error(`启动 ${name} 失败: ${e.message}`)
+    }
+  }
+  // 启动完成后刷新当前会话
+  if (currentSessionId.value) {
+    handleSelectSession(currentSessionId.value)
   }
 }
 
