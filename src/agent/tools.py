@@ -391,6 +391,7 @@ class ToolRegistry:
     def __init__(self):
         self._tools: dict[str, Tool] = {}
         self._compose_plugins: dict[str, ComposePlugin] = {}
+        self._tool_to_compose: dict[str, str] = {}  # 子工具名 -> compose 插件名
 
     def register(self, tool: Tool) -> None:
         self._tools[tool.name] = tool
@@ -428,6 +429,10 @@ class ToolRegistry:
 
     def list_compose(self) -> list[str]:
         return list(self._compose_plugins.keys())
+
+    def get_compose_for_tool(self, tool_name: str) -> str | None:
+        """获取工具对应的 compose 插件名（从配置映射中查找）"""
+        return self._tool_to_compose.get(tool_name)
 
     def load_from_yaml(self, path: str, docker_client=None, base_dir: str = None) -> None:
         if not os.path.exists(path):
@@ -571,6 +576,11 @@ class ToolRegistry:
                 icon=cfg.get('icon', 'default'),
             )
             self.register_compose(compose)
+            # 建立子工具名到 compose 名的映射
+            for child in children:
+                child_name = child.get('name', '')
+                if child_name:
+                    self._tool_to_compose[child_name] = name
             logger.info(f"已注册 compose 插件: {name} (子服务: {len(children)} 个)")
 
         elif plugin_type == 'local':

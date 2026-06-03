@@ -223,11 +223,18 @@ def _auto_start_containers_for_tools(tool_names: list[str]) -> tuple[list[str], 
     from src.agent.tools import ExecContainerPlugin
 
     # 检查所有工具，收集需要的 compose 插件
+    # 方式1：从已注册的工具中查找 _parent_compose 属性
+    # 方式2：从配置映射中查找（compose 未运行时，子工具未注册）
     needed_composes = set()
     for name in tool_names:
         tool = _tool_registry.get_tool(name)
         if tool and hasattr(tool, '_parent_compose') and tool._parent_compose:
             needed_composes.add(tool._parent_compose)
+        else:
+            # 工具未注册（可能是 compose 子工具），从配置映射中查找
+            compose_name = _tool_registry.get_compose_for_tool(name)
+            if compose_name:
+                needed_composes.add(compose_name)
 
     # 检查 compose 插件是否运行
     for compose_name in needed_composes:
